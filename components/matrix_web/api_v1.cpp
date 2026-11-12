@@ -9,6 +9,10 @@
 #include <cstring>
 
 #include "esphome/components/json/json_util.h"
+#ifdef USE_WIFI
+#include "esphome/components/wifi/scan_list.h"
+#include "esphome/components/wifi/wifi_component.h"
+#endif
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
@@ -454,6 +458,73 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
       return err(405, "methodNotAllowed", "allowed: GET");
     rep.body = this->build_screen_json_();
     return rep;
+  }
+
+  // ----- wifi (налаштування мережі з веб-панелі) -----
+  if (path == "wifi") {
+#ifdef USE_WIFI
+    auto *w = wifi::global_wifi_component;
+    if (is_get) {
+      std::string out = "{\"connected\":";
+      out += w->is_connected() ? "true" : "false";
+      char ssid[wifi::SSID_BUFFER_SIZE] = {0};
+      out += ",\"ssid\":";
+      jstr(out, w->is_connected() ? std::string(w->wifi_ssid_to(ssid)) : std::string());
+      out += ",\"rssi\":" + std::to_string(w->is_connected() ? w->wifi_rssi() : 0);
+      out += ",\"ip\":\"";
+      char ip[network::IP_ADDRESS_BUFFER_SIZE] = {0};
+      for (auto &a : w->wifi_sta_ip_addresses())
+        if (a.is_set()) {
+          a.str_to(ip);
+          break;
+        }
+      out += ip;
+      out += "\",\"apActive\":";
+      out += w->is_ap_active() ? "true" : "false";
+      out += ",\"networks\":[";
+      {
+        wifi::ScanResultsLock lock(w);
+        const auto &results = w->get_scan_result();
+        bool first = true;
+        for (const auto &scan : results) {
+          bool with_auth = false;
+          if (!wifi::should_show_scan_entry(results, scan, with_auth))
+            continue;
+          if (!first)
+            out += ',';
+          first = false;
+          out += "{\"ssid\":";
+          const StringRef s = scan.get_ssid();
+          jstr(out, std::string(s.c_str(), s.size()));
+          out += ",\"rssi\":" + std::to_string(scan.get_rssi());
+          out += ",\"lock\":";
+          out += with_auth ? "true" : "false";
+          out += '}';
+        }
+      }
+      out += "]}";
+      rep.body = out;
+      return rep;
+    }
+    if (is_post || is_put) {
+      JsonDocument doc;
+      if (!parse(doc))
+        return err(400, "badRequest", "JSON body {\"ssid\": ..., \"password\": ...} expected");
+      const std::string ssid = doc["ssid"] | "";
+      const std::string pass = doc["password"] | "";
+      if (ssid.empty() || ssid.size() > 32)
+        return err(400, "badRequest", "ssid: 1-32 chars");
+      if (!pass.empty() && (pass.size() < 8 || pass.size() > 64))
+        return err(400, "badRequest", "password: empty or 8-64 chars");
+      ESP_LOGI(TAG, "Wi-Fi settings change requested: SSID='%s'", ssid.c_str());
+      // Невелика затримка, щоб відповідь встигла піти до перемикання мережі
+      this->set_timeout(500, [ssid, pass]() { wifi::global_wifi_component->save_wifi_sta(ssid, pass); });
+      return ok();
+    }
+    return err(405, "methodNotAllowed", "allowed: GET, POST");
+#else
+    return err(404, "notFound", "built without Wi-Fi");
+#endif
   }
 
   // ----- icons -----

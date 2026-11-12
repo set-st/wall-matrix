@@ -24,6 +24,7 @@ from esphome.components import (
     text,
     text_sensor,
     web_server_base,
+    wifi,
 )
 from esphome.const import CONF_ID, CONF_PASSWORD, CONF_USERNAME
 from esphome.core import CORE, HexInt
@@ -93,6 +94,10 @@ async def to_code(config):
         cg.add(base.set_auth_username(config[CONF_USERNAME]))
         cg.add(base.set_auth_password(config[CONF_PASSWORD]))
         cg.add(var.set_auth(config[CONF_USERNAME], config[CONF_PASSWORD]))
+
+    # Налаштування Wi-Fi у веб-панелі: список мереж читаємо з потоку httpd
+    wifi.request_wifi_scan_results()
+    wifi.request_wifi_scan_results_lock()
 
     cg.add(var.set_light(await cg.get_variable(config[CONF_LIGHT])))
     cg.add(var.set_geometry(config[CONF_WIDTH], config[CONF_HEIGHT]))

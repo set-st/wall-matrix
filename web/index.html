@@ -199,6 +199,17 @@
   .ha-form input { width: 100%; font-family: var(--mono); }
   @media (max-width: 600px) { .ha-form { grid-template-columns: 1fr; } }
 
+  /* Wi-Fi */
+  .wifi-nets { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 0; max-height: 260px; overflow-y: auto; }
+  .wifi-net { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; background: var(--con);
+    border: 1px solid var(--border); border-radius: 9px; text-align: left; }
+  .wifi-net b { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wifi-net span { color: var(--dim); font: 12px var(--mono); }
+  .wifi-net.cur { border-color: var(--acc); }
+  .wbars { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; }
+  .wbars i { width: 3px; background: var(--trk); border-radius: 1px; }
+  .wbars i.on { background: var(--ok); }
+
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(80px);
     background: var(--card2); border: 1px solid var(--border); padding: 9px 14px; border-radius: 9px;
     transition: .25s; opacity: 0; font-size: 13px; }
@@ -293,6 +304,19 @@
     <div style="display:flex;gap:8px"><button class="primary" id="haSave">Перевірити</button><button id="haForget">Забути</button></div>
   </div>
   <div class="muted" id="haStatus" style="padding-bottom:14px"></div>
+</template>
+<template id="tpl-wifi">
+  <div class="muted" id="wifiStatus" style="padding-top:14px">…</div>
+  <div class="wifi-nets" id="wifiNets"></div>
+  <div class="ha-form">
+    <input type="text" id="wifiSsid" maxlength="32" placeholder="Назва мережі (SSID)" autocomplete="off">
+    <input type="password" id="wifiPass" maxlength="64" placeholder="Пароль (порожньо — відкрита мережа)" autocomplete="new-password">
+    <div style="display:flex;gap:8px"><button class="primary" id="wifiSave">Підключитися</button></div>
+  </div>
+  <div class="muted" style="padding-bottom:14px">Панель збереже мережу й перепідключиться — сторінка на час
+    перепідключення втратить зв'язок, а IP-адреса може змінитися. Якщо підключитися не вдасться, панель
+    підніме точку доступу «Wall Matrix Fallback» (пароль 12345678) — під'єднайтеся до неї, і ця сторінка
+    відкриється сама (або перейдіть на http://192.168.4.1).</div>
 </template>
 <template id="tpl-apps">
   <div id="appList"></div>
@@ -389,6 +413,7 @@ const PAGES = {
       { t: "switch", id: "test_pattern", label: "Тестовий екран", hint: "Кожна панель своїм кольором, діагональ і кутові точки." } ] },
   ],
   system: [
+    { h: "Wi-Fi", sub: "Мережа, до якої підключається панель.", tpl: "tpl-wifi" },
     { h: "Home Assistant", sub: "Лише для пошуку сутностей у полях. Браузер звертається до HA напряму; токен зберігається в цьому браузері й на панель не передається.", tpl: "tpl-ha" },
     { h: "Пристрій", sub: "Перезавантаження й обслуговування.", items: [
       { t: "button", id: "btn_restart", label: "Перезавантажити", btn: "Перезавантажити", danger: true, confirm: "Перезавантажити панель?" },
@@ -793,6 +818,40 @@ function entityField(domains, onCommit) {
   return { element, input };
 }
 
+/* ===================== Wi-Fi ===================== */
+const bars = rssi => { const n = rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : 1;
+  return `<span class="wbars">${[4, 7, 10, 13].map((h, i) => `<i style="height:${h - 1}px" class="${i < n ? "on" : ""}"></i>`).join("")}</span>`; };
+
+async function loadWifi() {
+  let w;
+  try { w = await api("GET", "wifi"); } catch (e) { $("wifiStatus").textContent = "Не вдалося прочитати стан Wi-Fi"; return; }
+  $("wifiStatus").innerHTML = w.connected
+    ? `Підключено до <b>${esc(w.ssid)}</b> · ${w.rssi} dBm · ${esc(w.ip)}`
+    : (w.apActive ? "Немає підключення — працює резервна точка доступу. Оберіть мережу нижче." : "Немає підключення, панель шукає мережу…");
+  const nets = (w.networks || []).sort((a, b) => b.rssi - a.rssi);
+  $("wifiNets").replaceChildren(...(nets.length ? nets.map(n => {
+    const b = el("button", "wifi-net" + (w.connected && n.ssid === w.ssid ? " cur" : ""));
+    b.type = "button";
+    b.innerHTML = `${bars(n.rssi)}<b></b><span>${n.lock ? "🔒 " : ""}${n.rssi} dBm</span>`;
+    b.querySelector("b").textContent = n.ssid;
+    b.onclick = () => { $("wifiSsid").value = n.ssid; $("wifiPass").value = ""; $("wifiPass").focus(); };
+    return b;
+  }) : [el("div", "muted", w.apActive ? "Шукаю мережі…" : "Список мереж — з моменту ввімкнення панелі; назву можна ввести вручну.")]));
+}
+const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function setupWifiForm() {
+  $("wifiSave").onclick = async () => {
+    const ssid = $("wifiSsid").value.trim(), password = $("wifiPass").value;
+    if (!ssid) return toast("Вкажіть назву мережі");
+    if (password && password.length < 8) return toast("Пароль Wi-Fi — щонайменше 8 символів");
+    if (!confirm(`Підключити панель до «${ssid}»? Зв'язок зі сторінкою на час перепідключення зникне.`)) return;
+    if (await apiTry("POST", "wifi", { ssid, password })) { $("wifiPass").value = ""; toast("Збережено. Панель перепідключається…"); }
+  };
+  loadWifi();
+  setInterval(() => { if ($("page-system").classList.contains("active")) loadWifi(); }, 8000);
+}
+
 function setupHaForm() {
   const c = haCfg();
   $("haUrl").value = c.url || "http://homeassistant.local:8123";
@@ -982,6 +1041,7 @@ async function uploadIcon(file, name, size) {
 /* ===================== старт ===================== */
 build();
 setupHaForm();
+setupWifiForm();
 draw();
 loadState();
 loadIcons();

@@ -9,6 +9,10 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
+#ifdef USE_CAPTIVE_PORTAL
+#include "esphome/components/captive_portal/captive_portal.h"
+#endif
+
 namespace esphome::matrix_web {
 
 static const char *const TAG = "matrix_web";
@@ -94,9 +98,22 @@ static std::string get_url(AsyncWebServerRequest *request) {
   return std::string(url.c_str(), url.size());
 }
 
+// Режим резервної точки доступу: відповідаємо на будь-який GET своєю сторінкою,
+// щоб телефон (перевірки /generate_204, /hotspot-detect.html…) відкрив нашу панель,
+// а не сторінку captive_portal ESPHome. DNS-перехоплення лишається за captive_portal.
+static bool captive_active() {
+#ifdef USE_CAPTIVE_PORTAL
+  return captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active();
+#else
+  return false;
+#endif
+}
+
 bool MatrixWeb::canHandle(AsyncWebServerRequest *request) const {
   const std::string url = get_url(request);
-  return url == "/" || url == "/index.html" || url.rfind("/api/", 0) == 0;
+  if (url == "/" || url == "/index.html" || url.rfind("/api/", 0) == 0)
+    return true;
+  return captive_active() && request->method() == HTTP_GET;
 }
 
 void MatrixWeb::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
@@ -120,7 +137,9 @@ void MatrixWeb::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t
 void MatrixWeb::handleRequest(AsyncWebServerRequest *request) {
   const std::string url = get_url(request);
 
-  if (url == "/" || url == "/index.html") {
+  const bool page = url == "/" || url == "/index.html" ||
+                    (captive_active() && request->method() == HTTP_GET && url.rfind("/api/", 0) != 0);
+  if (page) {
     auto *response = request->beginResponse(200, "text/html", this->index_, this->index_len_);
     response->addHeader("Content-Encoding", "gzip");
     response->addHeader("Cache-Control", "no-cache");
