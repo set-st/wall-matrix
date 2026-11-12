@@ -88,6 +88,7 @@ struct InformerLine {
   std::string fmt;           // шаблон: {v} {v0} {v1} {v2} + {time} {date} {day} {temp}
   std::string icon;          // ім'я з бібліотеки (рядок 1: 16×16 займає обидва рядки)
   uint32_t color{0xFFFFFF};
+  bool unit{true};           // одиниця виміру сутності одразу після значення
 };
 
 struct Informer {
@@ -96,6 +97,7 @@ struct Informer {
   bool single{false};        // один рядок високим шрифтом
   uint32_t duration_ms{0};   // 0 — як у текстового застосунку
   InformerLine line[2];
+  std::string preview[2];    // поточний текст рядків — для веб-панелі (оновлюється в loop)
 };
 
 struct AppView {
@@ -213,6 +215,8 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   void upsert_informer_(Informer inf);
   void remove_informer_(const std::string &id);
   void watch_informer_(const Informer &inf);
+  void update_informer_previews_();
+  uint32_t preview_ms_{0};
   std::string informers_json_();
 
   // --- Іконки ---

@@ -64,7 +64,12 @@ static void informer_json(std::string &out, const Informer &inf) {
     jstr(out, l.fmt);
     out += ",\"icon\":";
     jstr(out, l.icon);
-    out += ",\"color\":\"" + color_hex(l.color) + "\"}";
+    out += ",\"color\":\"" + color_hex(l.color) + "\"";
+    out += ",\"unit\":";
+    out += l.unit ? "true" : "false";
+    out += ",\"preview\":";
+    jstr(out, inf.preview[i]);
+    out += '}';
   }
   out += "]}";
 }
@@ -102,6 +107,7 @@ bool parse_informer(JsonObjectConst o, Informer &inf) {
     d.fmt = clip(l["fmt"] | "", 64);
     d.icon = clip(l["icon"] | "", ICON_NAME_MAX);
     d.color = parse_hex_color(l["color"] | "", i == 0 ? 0xFFD200 : 0xFFFFFF);
+    d.unit = l["unit"] | true;
   }
   return true;
 }
@@ -168,9 +174,21 @@ Informer *MatrixWeb::find_informer_(const std::string &id) {
 }
 
 void MatrixWeb::watch_informer_(const Informer &inf) {
-  for (const auto &l : inf.line)
-    if (!l.entity.empty())
-      this->watch_ha(l.entity, l.attr, nullptr);
+  for (const auto &l : inf.line) {
+    if (l.entity.empty())
+      continue;
+    this->watch_ha(l.entity, l.attr, nullptr);
+    if (l.attr.empty())  // одиниця є лише в стану сенсора, не в атрибутах
+      this->watch_ha(l.entity, "unit_of_measurement", nullptr);
+  }
+}
+
+// Текст рядків для попереднього перегляду у веб-панелі (читається з потоку httpd під lock_)
+void MatrixWeb::update_informer_previews_() {
+  std::lock_guard<std::recursive_mutex> guard(this->lock_);
+  for (auto &inf : this->informers_)
+    for (int i = 0; i < 2; i++)
+      inf.preview[i] = this->informer_text(inf, i);
 }
 
 void MatrixWeb::upsert_informer_(Informer inf) {
@@ -225,6 +243,12 @@ std::string MatrixWeb::informer_text(const Informer &inf, int line) const {
     }
   }
   const auto num = have ? parse_number<float>(raw) : optional<float>{};
+  // Одиниця виміру: {u} — явно; інакше (галочка unit) — одразу після кожного значення
+  std::string unit;
+  if (have && l.attr.empty())
+    if (const std::string *u = this->ha_value(l.entity, "unit_of_measurement"))
+      unit = *u;
+  const bool auto_unit = l.unit && fmt.find("{u}") == std::string::npos;
   std::string out;
   out.reserve(fmt.size() + 16);
   for (size_t i = 0; i < fmt.size();) {
@@ -234,6 +258,13 @@ std::string MatrixWeb::informer_text(const Informer &inf, int line) const {
         const std::string key = fmt.substr(i + 1, end - i - 1);
         if (key == "v") {
           out += raw;
+          if (auto_unit)
+            out += unit;
+          i = end + 1;
+          continue;
+        }
+        if (key == "u") {
+          out += unit;
           i = end + 1;
           continue;
         }
@@ -245,6 +276,8 @@ std::string MatrixWeb::informer_text(const Informer &inf, int line) const {
           } else {
             out += raw;
           }
+          if (auto_unit)
+            out += unit;
           i = end + 1;
           continue;
         }

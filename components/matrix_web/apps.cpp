@@ -358,6 +358,10 @@ void MatrixWeb::loop() {
     this->register_raw_methods_();
 
   const uint32_t now = millis();
+  if (now - this->preview_ms_ >= 1000) {
+    this->preview_ms_ = now;
+    this->update_informer_previews_();
+  }
   std::lock_guard<std::recursive_mutex> guard(this->lock_);
 
   // Термін життя pushed-застосунків

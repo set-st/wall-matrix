@@ -208,7 +208,11 @@
   .inf-line { border: 1px solid var(--brd2); border-radius: 9px; padding: 8px 10px 10px; margin-top: 10px; background: var(--card); }
   .inf-line > b { display: block; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
   .grid2 { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
-  .grid3 { display: grid; grid-template-columns: 2fr auto 1fr; gap: 8px; align-items: center; margin-top: 8px; }
+  .grid3 { display: grid; grid-template-columns: 2fr auto auto 1fr; gap: 8px; align-items: center; margin-top: 8px; }
+  .chk { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+  .chk input { accent-color: var(--acc); width: 15px; height: 15px; }
+  .pv { margin-top: 8px; font: 12.5px var(--mono); color: var(--dim); }
+  .pv b { color: var(--fg); font-weight: 600; background: #000; padding: 1px 6px; border-radius: 4px; }
   .grid2 input, .grid3 input[type=text], .grid3 select { width: 100%; }
   .inf .ent { flex: 1 1 auto; min-width: 0; }
   .inf-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
@@ -341,7 +345,8 @@
   <div id="infList"></div>
   <div class="muted" style="padding-bottom:14px">У шаблоні рядка: <code>{v}</code> — значення сутності,
     <code>{v0}</code> <code>{v1}</code> <code>{v2}</code> — округлене число, а також <code>{time}</code>
-    <code>{date}</code> <code>{day}</code> <code>{temp}</code>. Іконка 16×16 у рядку 1 займає обидва рядки.</div>
+    <code>{date}</code> <code>{day}</code> <code>{temp}</code>; <code>{u}</code> — одиниця виміру (з галочкою
+    «одиниця» вона додається після значення сама). Іконка 16×16 у рядку 1 займає обидва рядки.</div>
 </template>
 <template id="tpl-apps">
   <div id="appList"></div>
@@ -943,6 +948,7 @@ async function saveOrder() {
 
 /* ===================== інформери ===================== */
 let informers = [];
+const infPreview = new Map();   // id → [елемент рядка 1, рядка 2]
 const infOpen = new Set();      // розгорнуті картки
 const infDraft = new Map();     // незбережені зміни: id → копія
 
@@ -1011,11 +1017,19 @@ function infCard(src) {
     col.oninput = () => { L.color = col.value.toUpperCase(); touch(); };
     const ic = el("select"); iconOptions(ic, L.icon, i ? 8 : 16);
     ic.onchange = () => { L.icon = ic.value; touch(); };
-    const g2 = el("div", "grid3"); g2.append(fmt, col, ic);
-    box.append(g1, g2);
+    const uchk = el("label", "chk"), ucb = el("input"); ucb.type = "checkbox"; ucb.checked = L.unit !== false;
+    uchk.title = "Додавати одиницю виміру сенсора (°C, %, W…) одразу після значення";
+    uchk.append(ucb, document.createTextNode("одиниця"));
+    ucb.onchange = () => { L.unit = ucb.checked; touch(); };
+    const g2 = el("div", "grid3"); g2.append(fmt, uchk, col, ic);
+    const pv = el("div", "pv", "Зараз: <b></b>");
+    pv.querySelector("b").textContent = src.lines[i].preview || "—";
+    box.append(g1, g2, pv);
+    box._pv = pv.querySelector("b");
     return box;
   });
   body.append(...lineBoxes);
+  infPreview.set(src.id, lineBoxes.map(b => b._pv));
   const sync = () => { lineBoxes[1].style.display = d.single ? "none" : ""; };
   cb.onchange = () => { d.single = cb.checked; touch(); sync(); };
   sync();
@@ -1032,6 +1046,16 @@ function infCard(src) {
   body.append(acts);
   card.append(body);
   return card;
+}
+
+// Оновлює лише рядки «Зараз», не перебудовуючи картки (щоб не збивати введення)
+async function refreshInfPreviews() {
+  let list;
+  try { list = await api("GET", "informers"); } catch (e) { return; }
+  for (const inf of list) {
+    const els = infPreview.get(inf.id);
+    if (els) els.forEach((e, i) => { if (e.isConnected) e.textContent = inf.lines[i].preview || "—"; });
+  }
 }
 
 async function addInformer() {
@@ -1175,6 +1199,7 @@ loadIcons();
 loadApps();
 loadInformers();
 $("infAdd").onclick = addInformer;
+setInterval(() => { if ($("page-apps").classList.contains("active") && infPreview.size) refreshInfPreviews(); }, 3000);
 setInterval(loadState, 2000);
 setInterval(() => { if ($("page-apps").classList.contains("active")) loadApps(); }, 3000);
 liveLoop();

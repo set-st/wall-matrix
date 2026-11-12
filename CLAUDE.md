@@ -62,6 +62,9 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
   `ha_value()` (підписка `watch_ha(e, attr, nullptr)`: без обробника НЕ замінює чужий, напр. погоди).
   Малювання — `matrix_gfx::draw_informer`; високий шрифт `f_tall` = Handjet 14 (16/18 мають дефекти).
   POST /informers з тілом без `lines` → шаблон («Текст»).
+  Одиниці: для рядка без атрибута ще підписка на `unit_of_measurement`; `unit` (типово true) —
+  одиниця після кожного {v*}, якщо в шаблоні немає `{u}`. `preview[]` оновлюється в loop() раз на 1 с
+  (під lock_), віддається в GET /informers; веб-панель оновлює лише «Зараз», не перебудовуючи картки.
 - **Wi-Fi у веб-панелі** (`/api/v1/wifi`): стан, мережі (`request_wifi_scan_results` + `ScanResultsLock`,
   у codegen), збереження — `save_wifi_sta` через 500 мс. Сканування НЕ запускати при підключенні
   (`start_scanning` ламає стан STA). У режимі точки доступу `captive_portal` лишається заради DNS,
