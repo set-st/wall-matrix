@@ -100,12 +100,24 @@ static uint32_t parse_color(JsonVariantConst v, uint32_t def) {
   return def;
 }
 
+// Число з JSON: приймаємо й рядки ("20000") — шаблони HA інколи віддають так
+static float num(JsonVariantConst v, float def) {
+  if (v.isNull())
+    return def;
+  if (v.is<const char *>()) {
+    char *end = nullptr;
+    const float f = strtof(v.as<const char *>(), &end);
+    return end != v.as<const char *>() ? f : def;
+  }
+  return v.as<float>();
+}
+
 // Тривалість: durationMs (мс) або duration (с, як в AWTRIX 3)
 static uint32_t parse_ms(JsonObjectConst o, const char *ms_key, const char *sec_key) {
   if (!o[ms_key].isNull())
-    return o[ms_key].as<uint32_t>();
+    return (uint32_t) std::max(0.0f, num(o[ms_key], 0));
   if (!o[sec_key].isNull())
-    return (uint32_t) (o[sec_key].as<float>() * 1000.0f);
+    return (uint32_t) std::max(0.0f, num(o[sec_key], 0) * 1000.0f);
   return 0;
 }
 
@@ -352,7 +364,7 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
       a.color = parse_color(o["color"], 0xFFFFFF);
       a.duration_ms = parse_ms(o, "durationMs", "duration");
       a.lifetime_ms = parse_ms(o, "lifetimeMs", "lifetime");
-      a.progress = o["progress"].isNull() ? -1 : std::max(-1, std::min(100, o["progress"].as<int>()));
+      a.progress = std::max(-1, std::min(100, (int) lroundf(num(o["progress"], -1))));
       a.progress_color = parse_color(o["progressColor"].isNull() ? o["progressC"] : o["progressColor"], 0x00A0FF);
       const bool show = o["show"] | false;
       this->defer([this, a, show]() mutable {
