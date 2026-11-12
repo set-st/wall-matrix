@@ -25,7 +25,7 @@ matrix_web:
   numbers: [brightness_pct, min_brightness_pct, clock_secs, date_secs, weather_secs,
             text_secs, notify_duration, scroll_speed]
   texts: [color_clock, color_date, color_accent, color_notify, notify_input,
-          text_line1, text_line2, color_line1, color_line2, text_icon_name]
+          text_line1, text_line2, color_line1, color_line2, text_icon_name, weather_entity]
   selects: [week_start]
   buttons: [btn_next, btn_show_text, btn_send, btn_dismiss, btn_restart, btn_safe_mode]
   sensors: [s_uptime, s_wifi, ldr_voltage, weather_temp]

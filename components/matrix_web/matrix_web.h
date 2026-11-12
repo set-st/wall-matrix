@@ -1,6 +1,8 @@
 #pragma once
 
 #include <deque>
+#include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -138,6 +140,11 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   void prev_app();
   bool switch_to(const std::string &name);
 
+  // Стан сутності Home Assistant (attribute "" — сам стан). Можна викликати повторно
+  // з іншою сутністю: старий обробник замінюється (див. ha.cpp).
+  using HaCallback = std::function<void(const std::string &)>;
+  void watch_ha(const std::string &entity, const std::string &attribute, HaCallback cb);
+
  protected:
   // --- REST ---
   struct Reply {
@@ -219,6 +226,14 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   int current_{0};
   uint32_t app_started_ms_{0};
   float scroll_[3]{20, 20, 32};
+
+  struct HaSub {
+    bool subscribed{false};
+    bool has_value{false};
+    std::string value;
+    HaCallback cb;
+  };
+  std::map<std::string, HaSub> ha_subs_;
 
   ESPPreferenceObject order_pref_;
   ESPPreferenceObject icon_index_pref_;

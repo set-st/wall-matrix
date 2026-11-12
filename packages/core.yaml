@@ -37,6 +37,8 @@ ota:
 api:
   encryption:
     key: !secret api_key
+  # Підписки на довільні сутності HA під час роботи (погода тощо, див. matrix_web/ha.cpp)
+  homeassistant_states: true
   actions:
     # Home Assistant: action esphome.wall_matrix_notify
     #   message:  текст сповіщення (кирилиця підтримується)

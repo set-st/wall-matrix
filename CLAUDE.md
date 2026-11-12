@@ -49,6 +49,13 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
   (`POST /api/v1/apps/<name>`) — наше розширення: у NG UI маршрут не видно. /api/v1/system не робити.
 - ESPHome httpd реєструє лише GET/POST/OPTIONS — PUT/PATCH/DELETE реєструємо самі
   (`register_raw_methods_`, обгортка `RawRequest` для захищеного конструктора, власна digest-перевірка).
+- **Сутності HA під час роботи** (ha.cpp): `watch_ha(entity, attribute, cb)` — як у ~/panel
+  (panel_cards.h `subscribe_key`): підписка один раз на пару, повторний виклик замінює обробник
+  і віддає останнє значення; якщо HA вже підключений — шле йому `SubscribeHomeAssistantStateResponse`.
+  Погода: text `weather_entity` (on_value → watch_ha) → template `weather_temp` / `weather_state`.
+  Нові вбудовані застосунки з даними HA робити так само (text-сутність + watch_ha).
+- Пошук сутностей у веб-панелі: браузер → WebSocket HA (`get_states`) з токеном у localStorage
+  (`wall-matrix-ha`), на панель токен не йде. Поле `t: "entity"` у PAGES, `domains` — фільтр.
 - **Бібліотека іконок** (icons.cpp): до 32 шт, 256 КБ, NVS — блоб на іконку (`fnv1("mwicon:"+name)`)
   + індекс; видалення перезаписує блоб 1 байтом. Формат 'W''M' N W H 0 + кадри.
   Стару єдину іконку переносить як `text` (міграція).

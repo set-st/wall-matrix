@@ -19,12 +19,45 @@ time:
       - 1.pool.ntp.org
       - time.google.com
 
+# --- Погода: сутність задається з веб-панелі (вкладка «Застосунки» → «Погода») ---
+# weather.* — температура з атрибута temperature, стан (sunny, rainy…) — для іконки;
+# sensor.*  — температура зі стану сенсора, іконка — «хмарно».
+text:
+  - platform: template
+    id: weather_entity
+    name: "Weather entity"
+    icon: mdi:weather-partly-cloudy
+    mode: text
+    max_length: 64
+    optimistic: true
+    restore_value: true
+    initial_value: "${weather_entity}"
+    entity_category: config
+    on_value:
+      then:
+        - lambda: |-
+            const std::string e = x;
+            id(weather_temp).publish_state(NAN);
+            id(weather_state).publish_state("");
+            if (e.empty()) return;
+            const bool is_weather = e.rfind("weather.", 0) == 0;
+            id(web_panel)->watch_ha(e, is_weather ? "temperature" : "", [e](const std::string &v) {
+              if (id(weather_entity).state != e) return;  // сутність уже змінили
+              const auto f = parse_number<float>(v);
+              id(weather_temp).publish_state(f.has_value() ? *f : NAN);
+            });
+            if (is_weather)
+              id(web_panel)->watch_ha(e, "", [e](const std::string &v) {
+                if (id(weather_entity).state != e) return;
+                id(weather_state).publish_state(v);
+              });
+
 sensor:
-  - platform: homeassistant
+  - platform: template
     id: weather_temp
-    entity_id: ${weather_entity}
-    attribute: temperature
     internal: true
+    update_interval: never
+    accuracy_decimals: 1
 
   # Фоторезистор: 3.3V — LDR — GPIO — 10 кОм — GND (світліше → вища напруга)
   - platform: adc
@@ -46,8 +79,8 @@ sensor:
             id(auto_level) = min_b + (1.0f - min_b) * n;
 
 text_sensor:
-  - platform: homeassistant
+  - platform: template
     id: weather_state
-    entity_id: ${weather_entity}
     internal: true
+    update_interval: never
 

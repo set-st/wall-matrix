@@ -28,6 +28,7 @@ substitutions:
   timezone: Europe/Kyiv     # IANA-зона; взята з Windows (FLE Standard Time)
 
   # --- Home Assistant ---
+  # Типова сутність погоди; змінюється з веб-панелі без перепрошивки
   weather_entity: weather.forecast_home
 
 esphome:
