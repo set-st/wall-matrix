@@ -26,10 +26,10 @@ globals:
   # Позиції прокручування рядків текстового застосунку
   - id: line1_pos
     type: float
-    initial_value: "0"
+    initial_value: "20"
   - id: line2_pos
     type: float
-    initial_value: "0"
+    initial_value: "20"
 
 light:
   # Фізична стрічка: піксель 0 — вбудований LED плати, 1..512 — матриця.
@@ -140,7 +140,8 @@ display:
       // --- Сповіщення поверх усього ---
       if (id(notify_active)) {
         if ((int32_t) (id(notify_until) - millis()) > 0) {
-          matrix_gfx::draw_notification(it, id(f_text), id(notify_text),
+          matrix_gfx::draw_notification(it, id(f_text),
+              id(text_upper).state ? matrix_gfx::to_upper(id(notify_text)) : id(notify_text),
               dim(Color(id(notify_color)), k), dim(Color(255, 255, 255), k),
               id(scroll_pos), step);
           return;
@@ -186,9 +187,13 @@ display:
             w = 15;
           }
           const float temp = id(weather_temp).state;
-          matrix_gfx::draw_line(it, id(f_small), matrix_gfx::expand(id(text_line1).state, t, temp), x0, 0, w,
+          auto prep = [&](const std::string &s) {
+            const std::string e = matrix_gfx::expand(s, t, temp);
+            return id(text_upper).state ? matrix_gfx::to_upper(e) : e;
+          };
+          matrix_gfx::draw_line(it, id(f_small), prep(id(text_line1).state), x0, 0, w,
                                 dim(hex_color(id(color_line1).state, 0xFFD200), k), id(line1_pos), step);
-          matrix_gfx::draw_line(it, id(f_small), matrix_gfx::expand(id(text_line2).state, t, temp), x0, 8, w,
+          matrix_gfx::draw_line(it, id(f_small), prep(id(text_line2).state), x0, 8, w,
                                 dim(hex_color(id(color_line2).state, 0xFFFFFF), k), id(line2_pos), step);
           break;
         }

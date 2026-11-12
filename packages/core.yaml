@@ -75,7 +75,7 @@ api:
             if (show) {
               id(screen_idx) = 3;
               id(screen_ticks) = 0;
-              id(line1_pos) = 0;
-              id(line2_pos) = 0;
+              id(line1_pos) = matrix_gfx::SCROLL_PAUSE_PX;
+              id(line2_pos) = matrix_gfx::SCROLL_PAUSE_PX;
             }
 

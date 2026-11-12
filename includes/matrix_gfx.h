@@ -232,7 +232,38 @@ inline std::string expand(const std::string &src, const ESPTime &t, float temp) 
   return out;
 }
 
-// Рядок у прямокутнику [x0, x0+w) × [y, y+8): якщо влазить — по центру, інакше біжить.
+// Великі літери для UTF-8: латиниця, кирилиця (рос./укр., зокрема ґ є і ї ё).
+inline std::string to_upper(const std::string &src) {
+  std::string out;
+  out.reserve(src.size());
+  for (size_t i = 0; i < src.size(); i++) {
+    const uint8_t c = src[i];
+    if (c < 0x80) {
+      out += (c >= 'a' && c <= 'z') ? (char) (c - 32) : (char) c;
+      continue;
+    }
+    if ((c == 0xD0 || c == 0xD1 || c == 0xD2) && i + 1 < src.size()) {
+      uint32_t cp = ((c & 0x1F) << 6) | (src[i + 1] & 0x3F);
+      if (cp >= 0x430 && cp <= 0x44F) cp -= 0x20;        // а-я → А-Я
+      else if (cp >= 0x450 && cp <= 0x45F) cp -= 0x50;   // ѐ-џ (ё є і ї …) → Ѐ-Џ
+      else if (cp == 0x491) cp = 0x490;                  // ґ → Ґ
+      out += (char) (0xC0 | (cp >> 6));
+      out += (char) (0x80 | (cp & 0x3F));
+      i++;
+      continue;
+    }
+    out += (char) c;
+  }
+  return out;
+}
+
+// Пауза перед прокручуванням і зазор між повтореннями — як в AWTRIX
+static constexpr float SCROLL_PAUSE_PX = 20.0f;  // ≈ 1 с при швидкості 20 px/s
+static constexpr int SCROLL_GAP = 8;
+
+// Рядок у прямокутнику [x0, x0+w) × [y, y+8): якщо влазить — по центру, інакше
+// після паузи біжить по колу (видно одразу, без «в'їзду» з краю).
+// pos > 0 — ще триває пауза; pos ≤ 0 — зсув тексту.
 inline void draw_line(Display &it, BaseFont *font, const std::string &text, int x0, int y, int w, Color c,
                       float &pos, float step) {
   if (text.empty())
@@ -242,11 +273,15 @@ inline void draw_line(Display &it, BaseFont *font, const std::string &text, int 
   it.start_clipping(x0, y, x0 + w, y + 8);
   if (tw <= w) {
     it.print(x0 + (w - tw) / 2, y, font, c, TextAlign::TOP_LEFT, text.c_str());
-    pos = 0;
   } else {
-    it.print(x0 + (int) pos, y, font, c, TextAlign::TOP_LEFT, text.c_str());
+    const int period = tw + SCROLL_GAP;
+    const int off = pos > 0 ? 0 : (int) pos;
+    it.print(x0 + off, y, font, c, TextAlign::TOP_LEFT, text.c_str());
+    if (off + period < w)
+      it.print(x0 + off + period, y, font, c, TextAlign::TOP_LEFT, text.c_str());
     pos -= step;
-    if (pos < -tw) pos = w;
+    if (pos <= -period)
+      pos = SCROLL_PAUSE_PX;  // повний оберт — знову пауза на початку
   }
   it.end_clipping();
 }

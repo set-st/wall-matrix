@@ -23,7 +23,7 @@ matrix_web:
   notify_text: notify_input
   notify_button: btn_send
   switches: [auto_brightness, test_pattern, app_clock, app_date, app_weather, app_text,
-             text_icon, clock_24h, clock_blink, clock_seconds_bar]
+             text_icon, text_upper, clock_24h, clock_blink, clock_seconds_bar]
   numbers: [brightness_pct, min_brightness_pct, clock_secs, date_secs, weather_secs,
             text_secs, notify_duration, scroll_speed]
   texts: [color_clock, color_date, color_accent, color_notify, notify_input,
@@ -63,8 +63,8 @@ script:
               id(app_weather).state && !std::isnan(id(weather_temp).state),
               id(app_text).state && (!id(text_line1).state.empty() || !id(text_line2).state.empty())};
           id(screen_ticks) = 0;
-          id(line1_pos) = 0;
-          id(line2_pos) = 0;
+          id(line1_pos) = matrix_gfx::SCROLL_PAUSE_PX;
+          id(line2_pos) = matrix_gfx::SCROLL_PAUSE_PX;
           for (int i = 1; i <= 4; i++) {
             const int n = (id(screen_idx) + i) % 4;
             if (en[n]) { id(screen_idx) = n; return; }
@@ -253,6 +253,15 @@ switch:
     entity_category: config
 
   # --- Зовнішній вигляд ---
+  # Як в AWTRIX: увесь текст великими літерами — однакова висота, читається краще
+  - platform: template
+    id: text_upper
+    name: "Uppercase text"
+    icon: mdi:format-letter-case-upper
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
   - platform: template
     id: clock_24h
     name: "24-hour clock"
@@ -410,8 +419,8 @@ button:
       - lambda: |-
           id(screen_idx) = 3;
           id(screen_ticks) = 0;
-          id(line1_pos) = 0;
-          id(line2_pos) = 0;
+          id(line1_pos) = matrix_gfx::SCROLL_PAUSE_PX;
+          id(line2_pos) = matrix_gfx::SCROLL_PAUSE_PX;
           id(notify_active) = false;
 
   - platform: template
