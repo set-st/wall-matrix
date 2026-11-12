@@ -154,6 +154,33 @@
   .icon-side .btns { display: flex; gap: 10px; flex-wrap: wrap; }
   input[type=file] { display: none; }
 
+  /* черга застосунків */
+  .app-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--brd2); }
+  .app-row:last-child { border-bottom: 0; }
+  .app-row .pos { font: 12px var(--mono); color: var(--dim); width: 18px; text-align: right; }
+  .app-row .nm { flex: 1; min-width: 0; }
+  .app-row .nm b { font-weight: 600; }
+  .app-row .nm span { display: block; color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app-row.active .nm b { color: var(--acc); }
+  .app-row.gone { opacity: .5; }
+  .badge { font: 11px var(--mono); padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--dim); }
+  .badge.pushed { color: var(--acc); border-color: #5a3d26; }
+  .mini { width: 30px; height: 30px; padding: 0; justify-content: center; }
+
+  /* бібліотека іконок */
+  .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; padding: 14px 0; }
+  .tile { background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex;
+    flex-direction: column; gap: 6px; align-items: stretch; }
+  .tile canvas { width: 100%; aspect-ratio: 1; background: #000; border-radius: 7px; }
+  .tile .tn { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .tm { color: var(--dim); font: 11px var(--mono); }
+  .tile .tb { display: flex; gap: 6px; }
+  .tile .tb button { flex: 1; padding: 4px 6px; font-size: 12px; justify-content: center; }
+  .store { height: 4px; background: var(--trk); border-radius: 4px; overflow: hidden; margin-top: 12px; }
+  .store i { display: block; height: 100%; background: var(--acc); }
+  .add-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 14px 0; }
+  .add-row input[type=text] { width: 180px; font-family: var(--mono); }
+
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(80px);
     background: var(--card2); border: 1px solid var(--border); padding: 9px 14px; border-radius: 9px;
     transition: .25s; opacity: 0; font-size: 13px; }
@@ -180,7 +207,8 @@
     <nav id="nav">
       <a data-page="dash" class="active">Панель</a>
       <a data-page="apps">Застосунки</a>
-      <a data-page="text">Текст і іконка</a>
+      <a data-page="text">Текст</a>
+      <a data-page="icons">Іконки</a>
       <a data-page="look">Вигляд</a>
       <a data-page="notify">Сповіщення</a>
       <a data-page="display">Екран</a>
@@ -205,7 +233,8 @@
         <label class="sw"><input type="checkbox" id="autoBr"><span></span></label><span class="lab">Авто</span>
         <span class="sep"></span>
         <button class="ibtn" id="showTextQuick" title="Показати текст">T</button>
-        <button class="ibtn" id="next" title="Наступний екран">⏭</button>
+        <button class="ibtn" id="prev" title="Попередній застосунок">⏮</button>
+        <button class="ibtn" id="next" title="Наступний застосунок">⏭</button>
         <button class="ibtn" id="shot" title="Зберегти знімок екрана">⤓</button>
       </div>
     </div>
@@ -216,6 +245,7 @@
   <!-- ===== Сторінки налаштувань (будуються зі опису PAGES) ===== -->
   <section class="page" id="page-apps"></section>
   <section class="page" id="page-text"></section>
+  <section class="page" id="page-icons"></section>
   <section class="page" id="page-look"></section>
   <section class="page" id="page-notify"></section>
   <section class="page" id="page-display"></section>
@@ -233,22 +263,35 @@
     <span class="muted">≈ 8 символів у рядку; довший текст біжить</span>
   </div>
 </template>
-<template id="tpl-icon">
-  <div class="icon-box">
-    <canvas class="icon-prev" id="iconPrev" width="160" height="160"></canvas>
-    <div class="icon-side">
-      <div class="muted" id="iconInfo">Іконку не завантажено</div>
-      <div class="btns">
-        <label class="btn" for="iconFile">Обрати картинку або GIF</label>
-        <input type="file" id="iconFile" accept="image/png,image/gif,image/jpeg,image/webp,image/bmp">
-        <button class="danger" id="iconClear">Видалити</button>
-      </div>
-      <div class="muted">Зменшується до 16×16 у браузері, GIF — до 16 кадрів. Чорні пікселі прозорі.</div>
-    </div>
+<template id="tpl-icon-pick">
+  <div class="row"><div class="lbl"><b>Іконка</b><span>З бібліотеки (вкладка «Іконки»).</span></div>
+    <canvas id="textIconPrev" width="48" height="48" style="width:32px;height:32px;background:#000;border-radius:5px"></canvas>
+    <select id="textIconSel"></select></div>
+</template>
+<template id="tpl-apps">
+  <div id="appList"></div>
+  <div class="actions"><span class="muted">Pushed-застосунки створюються через API:
+    <code>POST /api/v1/apps/&lt;ім'я&gt;</code> — див. README.</span></div>
+</template>
+<template id="tpl-icon-add">
+  <div class="add-row">
+    <input type="text" id="icName" maxlength="23" placeholder="ім'я (a-z, 0-9, _ -)">
+    <select id="icSize"><option value="16">16×16</option><option value="8">8×8</option></select>
+    <label class="btn primary" for="icFile" style="background:var(--acc);color:var(--onacc);border-color:var(--acc)">Обрати файл і завантажити</label>
+    <input type="file" id="icFile" accept="image/png,image/gif,image/jpeg,image/webp,image/bmp">
   </div>
+  <div class="muted" style="padding-bottom:14px">PNG, JPG, WebP, BMP або GIF (до 16 кадрів; потрібен Chrome). Картинка зменшується
+    у браузері; чорні пікселі прозорі. Ім'я порожнє — візьметься з назви файлу.</div>
+</template>
+<template id="tpl-icon-lib">
+  <div class="store"><i id="icStore"></i></div>
+  <div class="muted" id="icStoreTxt" style="margin-top:6px"></div>
+  <div class="icon-grid" id="icGrid"></div>
 </template>
 <template id="tpl-notify">
   <div style="padding-top:14px"><textarea id="notifyText" maxlength="120" placeholder="Текст сповіщення"></textarea></div>
+  <div class="row"><div class="lbl"><b>Іконка</b><span>З іконкою — дрібний текст праворуч, без рамки.</span></div>
+    <select id="notifyIcon"></select></div>
   <div class="actions">
     <button class="primary" id="notifySend">Надіслати</button>
     <button id="notifyDismiss">Прибрати</button>
@@ -263,6 +306,7 @@
 // Сторінка = список секцій; секція = { h, sub, items | tpl }. Ключі — id сутностей з YAML.
 const PAGES = {
   apps: [
+    { h: "Черга", sub: "Порядок показу (↑ ↓), увімкнення та миттєвий показ. Як в AWTRIX NG.", tpl: "tpl-apps" },
     { h: "Годинник", sub: "Великі цифри, двокрапка і смужка секунд.", items: [
       { t: "switch", id: "app_clock", label: "Показувати" },
       { t: "number", id: "clock_secs", label: "Тривалість", hint: "Скільки секунд екран тримається.", unit: "с", kind: "box" } ] },
@@ -273,15 +317,19 @@ const PAGES = {
       { t: "switch", id: "app_weather", label: "Показувати", hint: "Пропускається, поки немає даних." },
       { t: "number", id: "weather_secs", label: "Тривалість", unit: "с", kind: "box" } ] },
     { h: "Текст", sub: "Два рядки дрібним шрифтом та іконка.", items: [
-      { t: "switch", id: "app_text", label: "Показувати", hint: "Налаштування — у вкладці «Текст і іконка»." },
+      { t: "switch", id: "app_text", label: "Показувати", hint: "Налаштування — у вкладці «Текст»." },
       { t: "number", id: "text_secs", label: "Тривалість", unit: "с", kind: "box" } ] },
   ],
   text: [
     { h: "Два рядки", sub: "Підстановки: натисніть, щоб вставити у вибраний рядок.", items: [
       { t: "line", id: "text_line1", color: "color_line1", label: "Рядок 1" },
       { t: "line", id: "text_line2", color: "color_line2", label: "Рядок 2" } ], tpl: "tpl-text-extra" },
-    { h: "Іконка 16×16", sub: "Картинка або анімований GIF зліва від тексту.", tpl: "tpl-icon", items: [
-      { t: "switch", id: "text_icon", label: "Показувати іконку", hint: "Текст тоді займає праву половину екрана." } ] },
+    { h: "Іконка", sub: "Картинка чи анімація зліва від тексту.", tpl: "tpl-icon-pick", items: [
+      { t: "switch", id: "text_icon", label: "Показувати іконку", hint: "Текст тоді займає праву частину екрана." } ] },
+  ],
+  icons: [
+    { h: "Додати іконку", sub: "Іконку можна вказати в застосунку, сповіщенні чи тексті за іменем.", tpl: "tpl-icon-add" },
+    { h: "Бібліотека", sub: "Зберігається у флеші панелі.", tpl: "tpl-icon-lib" },
   ],
   look: [
     { h: "Годинник", sub: "Вигляд головного екрана.", items: [
@@ -368,6 +416,20 @@ async function post(url, data, body, type) {
   } catch (e) { toast("Помилка: " + e.message); return false; }
 }
 const setVal = (type, id, v) => post("/api/set", { type, id, v });
+// /api/v1: JSON або двійкові дані; повертає розібраний JSON або кидає помилку з повідомленням
+async function api(method, path, body, type) {
+  const opts = { method };
+  if (body !== undefined) {
+    opts.body = (type || body instanceof Uint8Array) ? body : JSON.stringify(body);
+    opts.headers = { "Content-Type": type || (body instanceof Uint8Array ? "application/octet-stream" : "application/json") };
+  }
+  const r = await fetch("/api/v1/" + path, opts);
+  const ct = r.headers.get("Content-Type") || "";
+  const data = ct.includes("json") ? await r.json() : new Uint8Array(await r.arrayBuffer());
+  if (!r.ok) throw new Error((data && data.error && data.error.message) || ("HTTP " + r.status));
+  return data;
+}
+const apiTry = async (...a) => { try { const d = await api(...a); setTimeout(loadState, 250); return d || true; } catch (e) { toast("Помилка: " + e.message); return null; } };
 const press = id => post("/api/press", { id });
 const isHex = v => /^#[0-9a-f]{6}$/i.test(v);
 const fillRange = i => i.style.setProperty("--p", ((i.value - (i.min || 0)) / ((i.max || 100) - (i.min || 0)) * 100) + "%");
@@ -441,7 +503,7 @@ function section(sec) {
   const card = el("div", "card");
   card.appendChild(el("div", "sec-h", `<b>${sec.h}</b>` + (sec.sub ? `<span>${sec.sub}</span>` : "")));
   const body = el("div", "sec-b");
-  if (sec.tpl === "tpl-icon" || sec.tpl === "tpl-notify") body.appendChild($(sec.tpl).content.cloneNode(true));
+  if (sec.tpl && sec.tpl !== "tpl-text-extra") body.appendChild($(sec.tpl).content.cloneNode(true));
   (sec.items || []).forEach(it => body.appendChild(row(it)));
   if (sec.tpl === "tpl-text-extra") body.appendChild($(sec.tpl).content.cloneNode(true));
   card.appendChild(body);
@@ -461,8 +523,9 @@ function build() {
   // панель
   $("power").onchange = e => setVal("light", "", e.target.checked ? "on" : "off");
   $("autoBr").onchange = e => setVal("switch", "auto_brightness", e.target.checked ? "on" : "off");
-  $("next").onclick = () => press("btn_next");
-  $("showTextQuick").onclick = () => press("btn_show_text");
+  $("next").onclick = () => apiTry("POST", "apps/next", {}).then(loadApps);
+  $("prev").onclick = () => apiTry("POST", "apps/previous", {}).then(loadApps);
+  $("showTextQuick").onclick = () => apiTry("PUT", "apps/active", { name: "Text" }).then(loadApps);
   $("shot").onclick = screenshot;
   const br = $("brightness");
   br.oninput = () => { $("brightnessVal").textContent = br.value + "%"; fillRange(br); };
@@ -507,26 +570,31 @@ function build() {
     };
     $("chips").appendChild(c);
   });
-  $("showText").onclick = () => press("btn_show_text");
+  $("showText").onclick = () => apiTry("PUT", "apps/active", { name: "Text" });
+  $("textIconSel").onchange = e => setVal("text", "text_icon_name", e.target.value);
+  binders.push(s => { const v = s.text.text_icon_name; if (v !== undefined && document.activeElement !== $("textIconSel")) {
+    iconSelVal($("textIconSel"), v); drawIconThumb($("textIconPrev"), v); } });
 
   // сповіщення
   const ta = $("notifyText");
   ta.oninput = () => $("notifyCount").textContent = `${ta.value.length} / 120`;
   $("notifySend").onclick = async () => {
-    const msg = ta.value.trim(); if (!msg) return toast("Введіть текст");
-    if (await post("/api/notify", null, msg)) toast("Надіслано");
+    const msg = ta.value.trim(), icon = $("notifyIcon").value;
+    if (!msg && !icon) return toast("Введіть текст");
+    const body = { text: msg, stack: true };
+    if (icon) body.icon = icon;
+    if (await apiTry("POST", "notifications", body)) toast("Надіслано");
   };
-  $("notifyDismiss").onclick = () => press("btn_dismiss");
+  $("notifyDismiss").onclick = () => apiTry("DELETE", "notifications/active");
 
-  // іконка
-  $("iconFile").onchange = async e => {
+  // бібліотека іконок
+  $("icFile").onchange = async e => {
     const f = e.target.files[0]; e.target.value = "";
     if (!f) return;
-    try { await uploadIcon(f); } catch (err) { console.error(err); toast("Не вдалося обробити файл"); }
-  };
-  $("iconClear").onclick = async () => {
-    if (!confirm("Видалити іконку?")) return;
-    if (await post("/api/icon_clear")) { toast("Іконку видалено"); setTimeout(loadIcon, 500); }
+    let name = $("icName").value.trim() || f.name.replace(/\.[^.]+$/, "");
+    name = name.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 23);
+    try { await uploadIcon(f, name, +$("icSize").value); $("icName").value = ""; }
+    catch (err) { console.error(err); toast("Помилка: " + err.message); }
   };
 
   const on = [0, 3, 5, 6, 9, 10, 12, 15];
@@ -600,52 +668,139 @@ function screenshot() {
   });
 }
 
-/* ===================== іконка ===================== */
-const ICON = 16, MAX_FRAMES = 16, FRAME_BYTES = ICON * ICON * 3;
-let ipCv, ipCtx, iconTimer = null;
+/* ===================== черга застосунків ===================== */
+const APP_NAMES = { Time: "Годинник", Date: "Дата", Weather: "Погода", Text: "Текст" };
+let apps = [];
 
-function showIcon(frames) {
-  clearTimeout(iconTimer);
-  if (!frames.length) {
-    drawPixels(ipCtx, ipCv, ICON, ICON, null);
-    $("iconInfo").textContent = "Іконку не завантажено";
-    return;
-  }
-  $("iconInfo").textContent = frames.length > 1 ? `Анімація: ${frames.length} кадр(ів)` : "Статична картинка";
-  let i = 0;
-  const tick = () => {
-    drawPixels(ipCtx, ipCv, ICON, ICON, frames[i].rgb, false);
-    const d = frames[i].delay; i = (i + 1) % frames.length;
-    if (frames.length > 1) iconTimer = setTimeout(tick, Math.max(d, 20));
-  };
-  tick();
-}
-
-async function loadIcon() {
-  try {
-    const r = await fetch("/api/icon", { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status);
-    const b = new Uint8Array(await r.arrayBuffer());
-    const n = b[2], frames = [];
-    let p = 6;
-    for (let i = 0; i < n; i++) {
-      frames.push({ delay: b[p] | (b[p + 1] << 8), rgb: b.slice(p + 2, p + 2 + FRAME_BYTES) });
-      p += 2 + FRAME_BYTES;
+async function loadApps() {
+  try { apps = await api("GET", "apps"); } catch (e) { return; }
+  const host = $("appList"); if (!host) return;
+  host.replaceChildren(...apps.map((a, i) => {
+    const r = el("div", "app-row" + (a.active ? " active" : "") + (a.present ? "" : " gone"));
+    const nm = el("div", "nm", `<b>${APP_NAMES[a.name] || a.name}</b>`);
+    const sub = a.origin === "pushed" ? [a.text, a.icon && "іконка " + a.icon, a.lifetimeMs ? `живе ${Math.round(a.lifetimeMs / 1000)} с` : ""]
+      .filter(Boolean).join(" · ") : (a.active ? "показується зараз" : `${Math.round(a.durationMs / 1000)} с`);
+    nm.appendChild(el("span", null, sub || ""));
+    const up = el("button", "mini", "↑"), down = el("button", "mini", "↓");
+    up.disabled = i === 0; down.disabled = i === apps.length - 1;
+    up.onclick = () => moveApp(i, -1); down.onclick = () => moveApp(i, 1);
+    const w = el("label", "sw"), cb = el("input"); cb.type = "checkbox"; cb.checked = a.enabled; w.append(cb, el("span"));
+    cb.onchange = () => { a.enabled = cb.checked; saveOrder(); };
+    const show = el("button", null, "Показати");
+    show.disabled = !a.present;
+    show.onclick = () => apiTry("PUT", "apps/active", { name: a.name }).then(() => setTimeout(loadApps, 300));
+    const parts = [el("span", "pos", String(i + 1)), up, down, nm,
+      el("span", "badge" + (a.origin === "pushed" ? " pushed" : ""), a.origin === "pushed" ? "pushed" : "вбудований"), w, show];
+    if (a.origin === "pushed") {
+      const del = el("button", "mini danger", "✕"); del.title = "Видалити";
+      del.onclick = async () => { if (confirm(`Видалити застосунок «${a.name}»?`) && await apiTry("DELETE", "apps/" + encodeURIComponent(a.name))) setTimeout(loadApps, 300); };
+      parts.push(del);
     }
-    showIcon(frames);
-  } catch (e) { showIcon([]); }
+    r.append(...parts);
+    return r;
+  }));
+}
+function moveApp(i, d) {
+  const j = i + d; if (j < 0 || j >= apps.length) return;
+  [apps[i], apps[j]] = [apps[j], apps[i]];
+  saveOrder();
+}
+async function saveOrder() {
+  await apiTry("PUT", "apps/order", { order: apps.map(a => a.name), disabled: apps.filter(a => !a.enabled).map(a => a.name) });
+  setTimeout(loadApps, 300);
 }
 
-// Будь-яке зображення → 16×16 RGB (вписуємо з полями; прозоре → чорне)
-function toRGB(img, w, h) {
-  const c = document.createElement("canvas"); c.width = ICON; c.height = ICON;
+/* ===================== бібліотека іконок ===================== */
+const MAX_FRAMES = 16;
+let icons = [];                  // [{name, width, height, frames, bytes}]
+const iconCache = new Map();     // name → {key, w, h, frames: [{delay, rgb}]}
+const animated = new Set();      // canvas'и, що анімуються
+
+function decodeWM(b) {
+  const n = b[2], w = b[3], h = b[4], fb = w * h * 3, frames = [];
+  let p = 6;
+  for (let i = 0; i < n; i++) { frames.push({ delay: b[p] | (b[p + 1] << 8), rgb: b.slice(p + 2, p + 2 + fb) }); p += 2 + fb; }
+  return { w, h, frames };
+}
+function encodeWM(w, h, frames) {
+  const fb = w * h * 3, buf = new Uint8Array(6 + frames.length * (2 + fb));
+  buf.set([0x57, 0x4D, frames.length, w, h, 0]);
+  let p = 6;
+  for (const f of frames) { buf[p] = f.delay & 0xFF; buf[p + 1] = f.delay >> 8; buf.set(f.rgb, p + 2); p += 2 + fb; }
+  return buf;
+}
+async function iconData(meta) {
+  const key = meta.name + ":" + meta.bytes + ":" + meta.frames;
+  const c = iconCache.get(meta.name);
+  if (c && c.key === key) return c;
+  const d = decodeWM(await api("GET", "icons/" + encodeURIComponent(meta.name)));
+  d.key = key; iconCache.set(meta.name, d);
+  return d;
+}
+function animate(cv, d) { cv._icon = d; cv._t0 = performance.now(); animated.add(cv); }
+function drawIconThumb(cv, name) {
+  const d = iconCache.get(name);
+  if (!d) { animated.delete(cv); drawPixels(cv.getContext("2d"), cv, 16, 16, null); return; }
+  animate(cv, d);
+}
+setInterval(() => {
+  const now = performance.now();
+  for (const cv of animated) {
+    if (!cv.isConnected) { animated.delete(cv); continue; }
+    const d = cv._icon, fs = d.frames;
+    let t = (now - cv._t0) % fs.reduce((s, f) => s + Math.max(f.delay, 20), 0), i = 0;
+    while (i < fs.length - 1 && t >= Math.max(fs[i].delay, 20)) { t -= Math.max(fs[i].delay, 20); i++; }
+    if (cv._frame === i && cv._drawn === d) continue;
+    cv._frame = i; cv._drawn = d;
+    drawPixels(cv.getContext("2d"), cv, d.w, d.h, fs[i].rgb, false);
+  }
+}, 40);
+
+function iconSelVal(sel, v) {
+  if (![...sel.options].some(o => o.value === v)) { const o = el("option", null, v + " (немає)"); o.value = v; sel.appendChild(o); }
+  sel.value = v;
+}
+function fillIconSelects() {
+  for (const [id, none] of [["textIconSel", null], ["notifyIcon", "без іконки"]]) {
+    const sel = $(id); if (!sel) continue;
+    const cur = sel.value;
+    sel.replaceChildren(...(none ? [Object.assign(el("option", null, none), { value: "" })] : []),
+      ...icons.map(i => Object.assign(el("option", null, `${i.name} · ${i.width}×${i.height}`), { value: i.name })));
+    if (cur) iconSelVal(sel, cur);
+  }
+  if (state) { const v = state.text.text_icon_name; if (v) { iconSelVal($("textIconSel"), v); drawIconThumb($("textIconPrev"), v); } }
+}
+
+async function loadIcons() {
+  let lib;
+  try { lib = await api("GET", "icons"); } catch (e) { return; }
+  icons = lib.icons || [];
+  await Promise.all(icons.map(m => iconData(m).catch(() => null)));
+  $("icStore").style.width = Math.min(100, lib.usedBytes / lib.totalBytes * 100) + "%";
+  $("icStoreTxt").textContent = `${icons.length} з ${lib.maxIcons} іконок · ${(lib.usedBytes / 1024).toFixed(1)} з ${(lib.totalBytes / 1024).toFixed(0)} КБ`;
+  $("icGrid").replaceChildren(...(icons.length ? icons.map(m => {
+    const t = el("div", "tile"), cv = el("canvas"); cv.width = cv.height = 160;
+    const d = iconCache.get(m.name); if (d) animate(cv, d);
+    const show = el("button", null, "Показати"), del = el("button", "danger", "✕");
+    show.onclick = () => apiTry("POST", "notifications", { icon: m.name, text: m.name, durationMs: 3000, stack: false });
+    del.onclick = async () => { if (confirm(`Видалити іконку «${m.name}»?`) && await apiTry("DELETE", "icons/" + encodeURIComponent(m.name))) setTimeout(loadIcons, 500); };
+    const tb = el("div", "tb"); tb.append(show, del);
+    t.append(cv, el("div", "tn", m.name), el("div", "tm", `${m.width}×${m.height} · ${m.frames} кадр.`), tb);
+    return t;
+  }) : [el("div", "muted", "Поки порожньо. Додайте першу іконку вище.")]));
+  fillIconSelects();
+}
+
+// Будь-яке зображення → size×size RGB (вписуємо з полями; прозоре → чорне)
+function toRGB(img, w, h, size) {
+  const c = document.createElement("canvas"); c.width = size; c.height = size;
   const x = c.getContext("2d", { willReadFrequently: true });
-  x.imageSmoothingEnabled = !(w <= ICON && h <= ICON);  // піксель-арт не розмиваємо
+  x.imageSmoothingEnabled = !(w <= size && h <= size);  // піксель-арт не розмиваємо
   x.imageSmoothingQuality = "high";
-  const s = Math.min(ICON / w, ICON / h);
+  const s = Math.min(size / w, size / h);
   const dw = Math.max(1, Math.round(w * s)), dh = Math.max(1, Math.round(h * s));
-  x.drawImage(img, Math.floor((ICON - dw) / 2), Math.floor((ICON - dh) / 2), dw, dh);
-  const d = x.getImageData(0, 0, ICON, ICON).data, out = new Uint8Array(FRAME_BYTES);
+  x.drawImage(img, Math.floor((size - dw) / 2), Math.floor((size - dh) / 2), dw, dh);
+  const d = x.getImageData(0, 0, size, size).data, out = new Uint8Array(size * size * 3);
   for (let i = 0, j = 0; i < d.length; i += 4, j += 3) {
     const a = d[i + 3] / 255;
     if (a < 0.5) continue;
@@ -653,8 +808,7 @@ function toRGB(img, w, h) {
   }
   return out;
 }
-
-async function decodeFrames(file) {
+async function decodeFrames(file, size) {
   if (file.type === "image/gif" && "ImageDecoder" in window) {
     const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: file.type });
     await dec.tracks.ready;
@@ -662,39 +816,33 @@ async function decodeFrames(file) {
     for (let i = 0; i < n; i++) {
       const { image } = await dec.decode({ frameIndex: i });
       const delay = Math.min(10000, Math.max(20, Math.round((image.duration || 100000) / 1000)));
-      frames.push({ delay, rgb: toRGB(image, image.displayWidth, image.displayHeight) });
+      frames.push({ delay, rgb: toRGB(image, image.displayWidth, image.displayHeight, size) });
       image.close();
     }
     if (total > MAX_FRAMES) toast(`Узято перші ${MAX_FRAMES} кадрів`);
     return frames;
   }
-  const bmp = await createImageBitmap(file);  // статична картинка або перший кадр GIF
-  return [{ delay: 1000, rgb: toRGB(bmp, bmp.width, bmp.height) }];
+  const bmp = await createImageBitmap(file);
+  return [{ delay: 1000, rgb: toRGB(bmp, bmp.width, bmp.height, size) }];
 }
-
-async function uploadIcon(file) {
-  const frames = await decodeFrames(file);
-  const buf = new Uint8Array(6 + frames.length * (2 + FRAME_BYTES));
-  buf.set([0x57, 0x4D, frames.length, ICON, ICON, 0]);
-  let p = 6;
-  for (const f of frames) {
-    buf[p] = f.delay & 0xFF; buf[p + 1] = f.delay >> 8;
-    buf.set(f.rgb, p + 2); p += 2 + FRAME_BYTES;
-  }
-  showIcon(frames);
-  if (await post("/api/icon", null, buf, "application/octet-stream")) {
-    toast(frames.length > 1 ? `Анімацію завантажено (${frames.length} кадр.)` : "Картинку завантажено");
-    setTimeout(loadIcon, 800);
+async function uploadIcon(file, name, size) {
+  if (!/^[A-Za-z0-9_-]{1,23}$/.test(name)) throw new Error("ім'я: латиниця, цифри, _ і -");
+  const frames = await decodeFrames(file, size);
+  if (await apiTry("PUT", "icons/" + encodeURIComponent(name), encodeWM(size, size, frames))) {
+    toast(`Іконку «${name}» збережено`);
+    iconCache.delete(name);
+    setTimeout(loadIcons, 600);
   }
 }
 
 /* ===================== старт ===================== */
 build();
-ipCv = $("iconPrev"); ipCtx = ipCv.getContext("2d");
 draw();
 loadState();
-loadIcon();
+loadIcons();
+loadApps();
 setInterval(loadState, 2000);
+setInterval(() => { if ($("page-apps").classList.contains("active")) loadApps(); }, 3000);
 liveLoop();
 </script>
 </body>

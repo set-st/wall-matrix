@@ -20,14 +20,12 @@ matrix_web:
   width: 32
   height: 16
   serpentine: ${panel_serpentine}
-  notify_text: notify_input
-  notify_button: btn_send
   switches: [auto_brightness, test_pattern, app_clock, app_date, app_weather, app_text,
              text_icon, text_upper, clock_24h, clock_blink, clock_seconds_bar]
   numbers: [brightness_pct, min_brightness_pct, clock_secs, date_secs, weather_secs,
             text_secs, notify_duration, scroll_speed]
   texts: [color_clock, color_date, color_accent, color_notify, notify_input,
-          text_line1, text_line2, color_line1, color_line2]
+          text_line1, text_line2, color_line1, color_line2, text_icon_name]
   selects: [week_start]
   buttons: [btn_next, btn_show_text, btn_send, btn_dismiss, btn_restart, btn_safe_mode]
   sensors: [s_uptime, s_wifi, ldr_voltage, weather_temp]
@@ -37,8 +35,8 @@ matrix_web:
 # Скрипти, спільні для веб-панелі, кнопок і Home Assistant
 # ---------------------------------------------------------------------------
 script:
+  # Сповіщення без іконки: великий шрифт і кольорова рамка (як і раніше)
   - id: notify_show
-    mode: restart
     parameters:
       message: string
       duration: int
@@ -46,30 +44,15 @@ script:
     then:
       - lambda: |-
           if (message.empty()) return;
-          id(notify_text) = message;
-          const int d = duration > 0 ? duration : (int) id(notify_duration).state;
-          id(notify_until) = millis() + (uint32_t) d * 1000UL;
-          id(notify_color) = matrix_gfx::parse_hex(color, matrix_gfx::parse_hex(id(color_notify).state, 0xFF8000));
-          id(scroll_pos) = 32;
-          id(notify_active) = true;
+          matrix_web::Notification n;
+          n.text = message;
+          n.duration_ms = duration > 0 ? (uint32_t) duration * 1000UL : 0;
+          n.frame_color = matrix_gfx::parse_hex(color, matrix_gfx::parse_hex(id(color_notify).state, 0xFF8000));
+          id(web_panel)->notify(n, true);
 
-  # Екрани: 0 — годинник, 1 — дата, 2 — погода, 3 — текст
   - id: next_screen
     then:
-      - lambda: |-
-          const bool en[4] = {
-              id(app_clock).state,
-              id(app_date).state,
-              id(app_weather).state && !std::isnan(id(weather_temp).state),
-              id(app_text).state && (!id(text_line1).state.empty() || !id(text_line2).state.empty())};
-          id(screen_ticks) = 0;
-          id(line1_pos) = matrix_gfx::SCROLL_PAUSE_PX;
-          id(line2_pos) = matrix_gfx::SCROLL_PAUSE_PX;
-          for (int i = 1; i <= 4; i++) {
-            const int n = (id(screen_idx) + i) % 4;
-            if (en[n]) { id(screen_idx) = n; return; }
-          }
-          id(screen_idx) = 0;  // усе вимкнено — показуємо годинник
+      - lambda: 'id(web_panel)->next_app();'
 
 # ---------------------------------------------------------------------------
 # Екран
@@ -381,6 +364,18 @@ text:
     initial_value: "Надворі {temp}"
     entity_category: config
 
+  # Ім'я іконки з бібліотеки для текстового застосунку
+  - platform: template
+    id: text_icon_name
+    name: "Text app icon name"
+    icon: mdi:image-outline
+    mode: text
+    max_length: 23
+    optimistic: true
+    restore_value: true
+    initial_value: "text"
+    entity_category: config
+
   - platform: template
     id: color_line1
     name: "Text line 1 color"
@@ -416,12 +411,7 @@ button:
     name: "Show text now"
     icon: mdi:text-box
     on_press:
-      - lambda: |-
-          id(screen_idx) = 3;
-          id(screen_ticks) = 0;
-          id(line1_pos) = matrix_gfx::SCROLL_PAUSE_PX;
-          id(line2_pos) = matrix_gfx::SCROLL_PAUSE_PX;
-          id(notify_active) = false;
+      - lambda: 'id(web_panel)->switch_to("Text");'
 
   - platform: template
     id: btn_send
@@ -439,7 +429,7 @@ button:
     name: "Dismiss notification"
     icon: mdi:close
     on_press:
-      - lambda: 'id(notify_active) = false;'
+      - lambda: 'id(web_panel)->dismiss();'
 
   - platform: restart
     id: btn_restart

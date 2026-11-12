@@ -1,5 +1,8 @@
 #pragma once
 
+#include <deque>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -18,17 +21,64 @@
 
 namespace esphome::matrix_web {
 
-// Іконка користувача: 16×16, до 16 кадрів (GIF), зберігається у флеші.
-static constexpr int ICON_W = 16;
-static constexpr int ICON_H = 16;
+// ---------------------------------------------------------------------------
+// Іконки: бібліотека за іменами (8×8 або 16×16, до 16 кадрів), зберігається у флеші.
+// Двійковий формат (і для API, і для флешу): 'W' 'M' кадри ширина висота 0,
+// далі на кожен кадр: затримка u16 LE (мс) + ширина×висота×3 байти RGB.
+// ---------------------------------------------------------------------------
 static constexpr int ICON_MAX_FRAMES = 16;
-static constexpr size_t ICON_FRAME_BYTES = ICON_W * ICON_H * 3;
+static constexpr int ICON_MAX_COUNT = 32;
+static constexpr size_t ICON_NAME_MAX = 23;
+static constexpr size_t ICON_BUDGET = 256 * 1024;
+static constexpr size_t ICON_HEADER = 6;
+static constexpr size_t ICON_MAX_BYTES = ICON_HEADER + ICON_MAX_FRAMES * (2 + 16 * 16 * 3);
 
-struct IconStore {
-  uint8_t frames;  // 0 — іконки немає
-  uint8_t reserved[3];
-  uint16_t delay_ms[ICON_MAX_FRAMES];
-  uint8_t data[ICON_MAX_FRAMES * ICON_FRAME_BYTES];
+struct Icon {
+  std::string name;
+  uint8_t w{0};
+  uint8_t h{0};
+  std::vector<uint16_t> delays;
+  std::vector<uint8_t> rgb;
+
+  int frames() const { return (int) this->delays.size(); }
+  size_t frame_bytes() const { return (size_t) this->w * this->h * 3; }
+  const uint8_t *frame_at(uint32_t now_ms) const;
+  std::string encode() const;
+  static bool decode(const uint8_t *data, size_t len, Icon &out, std::string &err);
+};
+
+// ---------------------------------------------------------------------------
+// Застосунки та сповіщення (модель як в AWTRIX NG)
+// ---------------------------------------------------------------------------
+enum class AppKind : uint8_t { CLOCK, DATE, WEATHER, TEXT, PUSHED };
+
+// Застосунок, надісланий через API (origin "pushed")
+struct PushedApp {
+  std::string name;
+  std::string text;          // "\n" — другий рядок
+  std::string icon;          // ім'я іконки з бібліотеки
+  uint32_t color{0xFFFFFF};
+  uint32_t duration_ms{0};   // 0 — як у текстового застосунку
+  uint32_t lifetime_ms{0};   // 0 — живе до видалення або перезавантаження
+  uint32_t updated_ms{0};
+  int progress{-1};          // 0..100, -1 — без смужки
+  uint32_t progress_color{0x00A0FF};
+};
+
+struct Notification {
+  std::string name;
+  std::string text;
+  std::string icon;
+  uint32_t color{0xFFFFFF};
+  uint32_t frame_color{0};   // 0 — без рамки; інакше колір рамки
+  uint32_t duration_ms{0};   // 0 — типова тривалість
+  bool hold{false};          // показувати, доки не приберуть
+  uint32_t started_ms{0};    // 0 — ще не показувалося
+};
+
+struct AppView {
+  AppKind kind{AppKind::CLOCK};
+  const PushedApp *app{nullptr};
 };
 
 template<typename T> struct Entry {
@@ -41,19 +91,24 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   explicit MatrixWeb(web_server_base::WebServerBase *base) : base_(base) {}
 
   void setup() override;
+  void loop() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::WIFI - 1.0f; }
 
-  // AsyncWebHandler
+  // AsyncWebHandler (GET/POST; PUT/PATCH/DELETE реєструються окремо — див. api_v1.cpp)
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
   void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) override;
   bool isRequestHandlerTrivial() const override { return false; }
 
-  // Налаштування з codegen
+  // --- Налаштування з codegen ---
   void set_index(const uint8_t *data, size_t len) {
     this->index_ = data;
     this->index_len_ = len;
+  }
+  void set_auth(const std::string &user, const std::string &pass) {
+    this->auth_user_ = user;
+    this->auth_pass_ = pass;
   }
   void set_light(light::LightState *light) { this->light_ = light; }
   void set_geometry(int w, int h) {
@@ -62,8 +117,6 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   }
   void set_serpentine(bool s) { this->serpentine_ = s; }
   void set_pixel_offset(int o) { this->pixel_offset_ = o; }
-  void set_notify_text(text::Text *t) { this->notify_text_ = t; }
-  void set_notify_button(button::Button *b) { this->notify_button_ = b; }
 
   void add_switch(const std::string &k, switch_::Switch *o) { this->switches_.push_back({k, o}); }
   void add_number(const std::string &k, number::Number *o) { this->numbers_.push_back({k, o}); }
@@ -73,32 +126,76 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   void add_sensor(const std::string &k, sensor::Sensor *o) { this->sensors_.push_back({k, o}); }
   void add_text_sensor(const std::string &k, text_sensor::TextSensor *o) { this->text_sensors_.push_back({k, o}); }
 
-  // Для display lambda: поточний кадр іконки (RGB, 16×16) або nullptr
-  const uint8_t *icon_frame(uint32_t now_ms) const;
-  bool has_icon() const { return this->icon_.frames > 0; }
+  // --- Для display lambda і YAML (основний цикл) ---
+  AppView current_app() const;
+  const Notification *current_notification() const;
+  const Icon *icon(const std::string &name) const;
+  float &scroll(int i) { return this->scroll_[i]; }  // 0, 1 — рядки; 2 — сповіщення
+
+  void notify(Notification n, bool stack);
+  void dismiss(const std::string &name = "");
+  void next_app();
+  void prev_app();
+  bool switch_to(const std::string &name);
 
  protected:
+  // --- REST ---
+  struct Reply {
+    int code{200};
+    std::string type{"application/json"};
+    std::string body;
+  };
+  Reply handle_v1_(int method, const std::string &url, const std::string &body);
+  static esp_err_t raw_handler_(httpd_req_t *r);
+  void register_raw_methods_();
+
   std::string build_state_() const;
   std::string build_live_() const;
+  std::string build_screen_json_() const;
+  std::string build_apps_json_();
+  std::string build_icons_json_();
+  bool read_pixel_(int x, int y, Color &c) const;
+
   void apply_set_(const std::string &type, const std::string &key, const std::string &value);
   void apply_press_(const std::string &key);
-  void apply_notify_(const std::string &message);
-  bool commit_icon_upload_();
-  void clear_icon_();
-  void save_icon_();
+
+  // --- Застосунки ---
+  bool is_builtin_(const std::string &name) const;
+  bool app_present_(const std::string &name) const;
+  bool app_enabled_(const std::string &name) const;
+  bool app_runnable_(const std::string &name) const;
+  uint32_t app_duration_ms_(const std::string &name) const;
+  PushedApp *find_pushed_(const std::string &name);
+  void set_app_enabled_(const std::string &name, bool en);
+  void upsert_pushed_(PushedApp app);
+  void remove_pushed_(const std::string &name);
+  void apply_order_(const std::vector<std::string> &order, const std::vector<std::string> &disabled);
+  void start_app_(int index);
+  void load_order_();
+  void save_order_();
+
+  // --- Іконки ---
+  void load_icons_();
+  void put_icon_(std::shared_ptr<Icon> icon);
+  void remove_icon_(const std::string &name);
+  void save_icon_index_();
+  size_t icons_bytes_() const;
+
+  float number_(const char *key, float def) const;
+  bool switch_(const char *key, bool def) const;
 
   web_server_base::WebServerBase *base_;
   const uint8_t *index_{nullptr};
   size_t index_len_{0};
+  std::string auth_user_;
+  std::string auth_pass_;
+  bool raw_registered_{false};
 
   light::LightState *light_{nullptr};
   int width_{32};
   int height_{16};
   bool serpentine_{false};
   int pixel_offset_{0};
-
-  text::Text *notify_text_{nullptr};
-  button::Button *notify_button_{nullptr};
 
   std::vector<Entry<switch_::Switch>> switches_;
   std::vector<Entry<number::Number>> numbers_;
@@ -108,11 +205,23 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   std::vector<Entry<sensor::Sensor>> sensors_;
   std::vector<Entry<text_sensor::TextSensor>> text_sensors_;
 
-  std::string body_;  // тіло поточного POST (httpd обробляє запити по одному)
-  std::vector<uint8_t> upload_;  // тіло завантаження іконки
+  // Тіла запитів (httpd обробляє запити по одному)
+  std::string body_;
+  std::vector<uint8_t> upload_;
 
-  IconStore icon_{};
-  ESPPreferenceObject icon_pref_;
+  // Стан. Змінюється лише в основному циклі; читання з потоку httpd — під lock_.
+  mutable std::recursive_mutex lock_;
+  std::vector<std::string> order_;          // порядок (вбудовані + pushed, зокрема відсутні)
+  std::vector<std::string> disabled_;       // вимкнені pushed-застосунки
+  std::vector<PushedApp> pushed_;
+  std::deque<Notification> notes_;
+  std::vector<std::shared_ptr<Icon>> icons_;
+  int current_{0};
+  uint32_t app_started_ms_{0};
+  float scroll_[3]{20, 20, 32};
+
+  ESPPreferenceObject order_pref_;
+  ESPPreferenceObject icon_index_pref_;
 };
 
 }  // namespace esphome::matrix_web

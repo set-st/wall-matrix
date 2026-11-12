@@ -1,21 +1,18 @@
 #include "matrix_web.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <algorithm>
 
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 namespace esphome::matrix_web {
 
 static const char *const TAG = "matrix_web";
-static constexpr size_t MAX_BODY = 1024;
-// Формат завантаження: 'W' 'M' кадри ширина висота 0, далі на кадр: затримка u16 LE + RGB
-static constexpr size_t ICON_HEADER = 6;
-static constexpr size_t ICON_MAX_UPLOAD = ICON_HEADER + ICON_MAX_FRAMES * (2 + ICON_FRAME_BYTES);
-static constexpr uint32_t ICON_PREF_HASH = 0x57A11C0Bu;
+static constexpr size_t MAX_BODY = 4096;
 
 // ---------------------------------------------------------------------------
 // JSON-помічники
@@ -66,62 +63,13 @@ template<typename T> static T *find(const std::vector<Entry<T>> &list, const std
 // Component
 // ---------------------------------------------------------------------------
 void MatrixWeb::setup() {
-  this->icon_pref_ = global_preferences->make_preference<IconStore>(ICON_PREF_HASH, true);
-  if (!this->icon_pref_.load(&this->icon_) || this->icon_.frames > ICON_MAX_FRAMES)
-    this->icon_.frames = 0;
+  this->load_order_();
+  this->load_icons_();
+  this->current_ = -1;
+  this->app_started_ms_ = millis();
   this->base_->init();
   this->base_->add_handler(this);
-}
-
-const uint8_t *MatrixWeb::icon_frame(uint32_t now_ms) const {
-  const int n = this->icon_.frames;
-  if (n == 0)
-    return nullptr;
-  if (n == 1)
-    return this->icon_.data;
-  uint32_t total = 0;
-  for (int i = 0; i < n; i++)
-    total += std::max<uint16_t>(this->icon_.delay_ms[i], 20);
-  uint32_t t = now_ms % total;
-  for (int i = 0; i < n; i++) {
-    const uint32_t d = std::max<uint16_t>(this->icon_.delay_ms[i], 20);
-    if (t < d)
-      return this->icon_.data + i * ICON_FRAME_BYTES;
-    t -= d;
-  }
-  return this->icon_.data;
-}
-
-bool MatrixWeb::commit_icon_upload_() {
-  const auto &u = this->upload_;
-  if (u.size() < ICON_HEADER || u[0] != 'W' || u[1] != 'M')
-    return false;
-  const int frames = u[2];
-  if (frames < 1 || frames > ICON_MAX_FRAMES || u[3] != ICON_W || u[4] != ICON_H)
-    return false;
-  if (u.size() != ICON_HEADER + frames * (2 + ICON_FRAME_BYTES))
-    return false;
-  size_t p = ICON_HEADER;
-  for (int i = 0; i < frames; i++) {
-    this->icon_.delay_ms[i] = u[p] | (u[p + 1] << 8);
-    memcpy(this->icon_.data + i * ICON_FRAME_BYTES, &u[p + 2], ICON_FRAME_BYTES);
-    p += 2 + ICON_FRAME_BYTES;
-  }
-  this->icon_.frames = frames;
-  this->save_icon_();
-  ESP_LOGI(TAG, "Icon uploaded: %d frame(s)", frames);
-  return true;
-}
-
-void MatrixWeb::clear_icon_() {
-  this->icon_.frames = 0;
-  this->save_icon_();
-  ESP_LOGI(TAG, "Icon cleared");
-}
-
-void MatrixWeb::save_icon_() {
-  this->icon_pref_.save(&this->icon_);
-  global_preferences->sync();
+  this->register_raw_methods_();
 }
 
 void MatrixWeb::dump_config() {
@@ -129,13 +77,16 @@ void MatrixWeb::dump_config() {
                 "Matrix web panel:\n"
                 "  Port: %u\n"
                 "  Page size (gzip): %u bytes\n"
-                "  Matrix: %dx%d, offset %d, serpentine %s",
+                "  Matrix: %dx%d, offset %d, serpentine %s\n"
+                "  Auth: %s\n"
+                "  Icons: %u (%u bytes)",
                 this->base_->get_port(), (unsigned) this->index_len_, this->width_, this->height_,
-                this->pixel_offset_, YESNO(this->serpentine_));
+                this->pixel_offset_, YESNO(this->serpentine_), YESNO(!this->auth_user_.empty()),
+                (unsigned) this->icons_.size(), (unsigned) this->icons_bytes_());
 }
 
 // ---------------------------------------------------------------------------
-// HTTP
+// HTTP (GET/POST)
 // ---------------------------------------------------------------------------
 static std::string get_url(AsyncWebServerRequest *request) {
   char buf[AsyncWebServerRequest::URL_BUF_SIZE];
@@ -149,13 +100,14 @@ bool MatrixWeb::canHandle(AsyncWebServerRequest *request) const {
 }
 
 void MatrixWeb::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (get_url(request) == "/api/icon") {
+  const bool icon = get_url(request).rfind("/api/v1/icons/", 0) == 0;
+  if (icon) {
     if (index == 0) {
       this->upload_.clear();
-      if (total <= ICON_MAX_UPLOAD)
+      if (total <= ICON_MAX_BYTES)
         this->upload_.reserve(total);
     }
-    if (this->upload_.size() + len <= ICON_MAX_UPLOAD)
+    if (this->upload_.size() + len <= ICON_MAX_BYTES)
       this->upload_.insert(this->upload_.end(), data, data + len);
     return;
   }
@@ -176,6 +128,23 @@ void MatrixWeb::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 
+  if (url.rfind("/api/v1/", 0) == 0) {
+    std::string body;
+    if (request->method() == HTTP_POST) {
+      if (url.rfind("/api/v1/icons/", 0) == 0) {
+        body.assign(this->upload_.begin(), this->upload_.end());
+        this->upload_.clear();
+        this->upload_.shrink_to_fit();
+      } else {
+        body.swap(this->body_);
+      }
+    }
+    const Reply rep = this->handle_v1_(request->method(), url, body);
+    auto *response = request->beginResponse(rep.code, rep.type.c_str(), rep.body);
+    request->send(response);
+    return;
+  }
+
   if (url == "/api/state") {
     const std::string json = this->build_state_();
     request->send(200, "application/json", json.c_str());
@@ -185,27 +154,6 @@ void MatrixWeb::handleRequest(AsyncWebServerRequest *request) {
   if (url == "/api/live") {
     const std::string live = this->build_live_();
     request->send(200, "text/plain", live.c_str());
-    return;
-  }
-
-  if (url == "/api/icon" && request->method() == HTTP_GET) {
-    // Той самий формат, що й для завантаження
-    std::string out;
-    const int n = this->icon_.frames;
-    out.reserve(ICON_HEADER + n * (2 + ICON_FRAME_BYTES));
-    out += 'W';
-    out += 'M';
-    out += (char) n;
-    out += (char) ICON_W;
-    out += (char) ICON_H;
-    out += (char) 0;
-    for (int i = 0; i < n; i++) {
-      out += (char) (this->icon_.delay_ms[i] & 0xFF);
-      out += (char) (this->icon_.delay_ms[i] >> 8);
-      out.append(reinterpret_cast<const char *>(this->icon_.data + i * ICON_FRAME_BYTES), ICON_FRAME_BYTES);
-    }
-    auto *response = request->beginResponse(200, "application/octet-stream", out);
-    request->send(response);
     return;
   }
 
@@ -230,51 +178,11 @@ void MatrixWeb::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  if (url == "/api/notify") {
-    std::string message = this->body_;
-    this->body_.clear();
-    if (message.empty())
-      message = request->arg("text");
-    if (message.empty()) {
-      request->send(400, "text/plain", "Empty message");
-      return;
-    }
-    this->defer([this, message]() { this->apply_notify_(message); });
-    request->send(200, "text/plain", "OK");
-    return;
-  }
-
-  if (url == "/api/icon") {
-    // Застосовуємо в основному циклі, щоб не змінювати іконку посеред кадру
-    std::vector<uint8_t> data;
-    data.swap(this->upload_);
-    const size_t size = data.size();
-    if (size < ICON_HEADER || data[0] != 'W' || data[1] != 'M') {
-      request->send(400, "text/plain", "Bad icon data");
-      return;
-    }
-    this->defer([this, data = std::move(data)]() mutable {
-      this->upload_.swap(data);
-      if (!this->commit_icon_upload_())
-        ESP_LOGW(TAG, "Icon upload rejected");
-      this->upload_.clear();
-      this->upload_.shrink_to_fit();
-    });
-    request->send(200, "text/plain", "OK");
-    return;
-  }
-
-  if (url == "/api/icon_clear") {
-    this->defer([this]() { this->clear_icon_(); });
-    request->send(200, "text/plain", "OK");
-    return;
-  }
-
   request->send(404, "text/plain", "Not Found");
 }
 
 // ---------------------------------------------------------------------------
-// Дані
+// Дані для веб-панелі
 // ---------------------------------------------------------------------------
 std::string MatrixWeb::build_state_() const {
   std::string out;
@@ -348,48 +256,43 @@ std::string MatrixWeb::build_state_() const {
     out += ':';
     json_str(out, this->text_sensors_[i].obj->state);
   }
-
-  out += "},\"buttons\":[";
-  for (size_t i = 0; i < this->buttons_.size(); i++) {
-    if (i) out += ',';
-    json_str(out, this->buttons_[i].key);
-  }
-  out += "]}";
+  out += "}}";
   return out;
 }
 
-// Кадр: width*height пікселів порядково, кожен — 6 hex-символів RRGGBB.
-std::string MatrixWeb::build_live_() const {
-  std::string out;
+// Піксель матриці (лінійне значення стрічки, як його записав дисплей)
+bool MatrixWeb::read_pixel_(int x, int y, Color &c) const {
   if (this->light_ == nullptr)
-    return out;
+    return false;
   auto *strip = static_cast<light::AddressableLight *>(this->light_->get_output());
-  const int32_t n = strip->size();
+  // Та сама розкладка, що й pixel_mapper: панелі 8×8 зліва направо, згори вниз
+  const int tiles_x = this->width_ / 8;
+  const int tile = (y / 8) * tiles_x + (x / 8);
+  int lx = x % 8;
+  const int ly = y % 8;
+  if (this->serpentine_ && (ly % 2 == 1))
+    lx = 7 - lx;
+  const int32_t idx = this->pixel_offset_ + tile * 64 + ly * 8 + lx;
+  if (idx >= strip->size())
+    return false;
+  c = (*strip)[idx].get();
+  return true;
+}
+
+// Кадр: width*height пікселів порядково, кожен — 6 hex-символів RRGGBB (лінійні значення).
+std::string MatrixWeb::build_live_() const {
   static const char HEX[] = "0123456789abcdef";
+  std::string out;
   out.reserve(this->width_ * this->height_ * 6);
-  for (int y = 0; y < this->height_; y++) {
+  for (int y = 0; y < this->height_; y++)
     for (int x = 0; x < this->width_; x++) {
-      // Та сама розкладка, що й pixel_mapper: панелі 8×8 зліва направо, згори вниз
-      const int tiles_x = this->width_ / 8;
-      const int tile = (y / 8) * tiles_x + (x / 8);
-      int lx = x % 8;
-      const int ly = y % 8;
-      if (this->serpentine_ && (ly % 2 == 1))
-        lx = 7 - lx;
-      const int32_t idx = this->pixel_offset_ + tile * 64 + ly * 8 + lx;
-      uint8_t rgb[3] = {0, 0, 0};
-      if (idx < n) {
-        const Color c = (*strip)[idx].get();
-        rgb[0] = c.r;
-        rgb[1] = c.g;
-        rgb[2] = c.b;
-      }
-      for (uint8_t v : rgb) {
+      Color c(0, 0, 0);
+      this->read_pixel_(x, y, c);
+      for (uint8_t v : {c.r, c.g, c.b}) {
         out += HEX[v >> 4];
         out += HEX[v & 0x0F];
       }
     }
-  }
   return out;
 }
 
@@ -442,15 +345,6 @@ void MatrixWeb::apply_press_(const std::string &key) {
     b->press();
   else
     ESP_LOGW(TAG, "Unknown button: %s", key.c_str());
-}
-
-void MatrixWeb::apply_notify_(const std::string &message) {
-  if (this->notify_text_ == nullptr || this->notify_button_ == nullptr) {
-    ESP_LOGW(TAG, "notify_text / notify_button are not configured");
-    return;
-  }
-  this->notify_text_->make_call().set_value(message).perform();
-  this->notify_button_->press();
 }
 
 }  // namespace esphome::matrix_web

@@ -39,8 +39,19 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
   нове налаштування додавати туди **і** в `PAGES` в index.html.
 - Перевірка картинки без матриці: завантажити /api/live і відмалювати (так знайшовся
   «залиплий» піксель і зламана глибина кольору).
-- Іконка: 16×16, до 16 кадрів, зберігається в NVS через preferences (`IconStore` ~12 КБ),
-  кадр для екрана — `id(web_panel)->icon_frame(millis())`.
+- **Рушій застосунків** у компоненті (apps.cpp): черга `order_` (вбудовані Time/Date/Weather/Text +
+  pushed з API), ротація в `loop()`, черга сповіщень. Display lambda лише питає
+  `web->current_notification()` / `web->current_app()`; YAML-скрипти викликають `next_app()`,
+  `switch_to("Text")`, `notify()`, `dismiss()`. Глобальних screen_idx/notify_* більше немає.
+- **API у стилі AWTRIX NG** (api_v1.cpp), вибір користувача. Маршрути з'ясовано з UI його NG
+  (http://192.168.2.101, лише GET-запити): apps, apps/order, apps/active, apps/next|previous,
+  notifications (+DELETE active|name), display (GET/PATCH), display/screen. Створення pushed
+  (`POST /api/v1/apps/<name>`) — наше розширення: у NG UI маршрут не видно. /api/v1/system не робити.
+- ESPHome httpd реєструє лише GET/POST/OPTIONS — PUT/PATCH/DELETE реєструємо самі
+  (`register_raw_methods_`, обгортка `RawRequest` для захищеного конструктора, власна digest-перевірка).
+- **Бібліотека іконок** (icons.cpp): до 32 шт, 256 КБ, NVS — блоб на іконку (`fnv1("mwicon:"+name)`)
+  + індекс; видалення перезаписує блоб 1 байтом. Формат 'W''M' N W H 0 + кадри.
+  Стару єдину іконку переносить як `text` (міграція).
 
 ## Підводні камені ESPHome (2026.10)
 - У ESP32-S3 лише **192 символи RMT** на всі TX-канали. Дві стрічки типово беруть по 192 →
@@ -67,8 +78,8 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
 - `packages/core.yaml` — плата, Wi-Fi, OTA, API (`notify`/`dismiss`/`set_text`).
 - `packages/display.yaml` — стрічка, шрифти, іконки MDI, display, гортання 4 екранів.
 - `packages/sensors.yaml` — час, погода з HA (`weather_entity`), фоторезистор GPIO4.
-- `packages/admin.yaml` — усі налаштування (template-сутності), скрипти `notify_show` / `next_screen`, блок `matrix_web`.
-- `components/matrix_web/` — власний HTTP-обробник поверх web_server_base (C++ + codegen).
+- `packages/admin.yaml` — усі налаштування (template-сутності), скрипти `notify_show` / `next_screen` (обгортки над рушієм), блок `matrix_web`.
+- `components/matrix_web/` — matrix_web.cpp (HTTP, стан), apps.cpp (рушій), api_v1.cpp (REST), icons.cpp (бібліотека).
 - `web/index.html` — веб-панель у стилі AWTRIX NG, vanilla JS.
 - `includes/matrix_gfx.h` — цифри 5×14, годинник, дата, температура, текст, іконка, гамма, тест.
 

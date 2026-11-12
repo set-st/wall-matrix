@@ -55,7 +55,7 @@ api:
             color: !lambda 'return color;'
     - action: dismiss
       then:
-        - lambda: 'id(notify_active) = false;'
+        - lambda: 'id(web_panel)->dismiss();'
     # Home Assistant: action esphome.wall_matrix_set_text
     #   line1, line2: рядки текстового застосунку; підстановки {time} {date} {day} {temp}
     #   show: true — одразу перемкнутися на текстовий екран
@@ -71,11 +71,5 @@ api:
         - text.set:
             id: text_line2
             value: !lambda 'return line2;'
-        - lambda: |-
-            if (show) {
-              id(screen_idx) = 3;
-              id(screen_ticks) = 0;
-              id(line1_pos) = matrix_gfx::SCROLL_PAUSE_PX;
-              id(line2_pos) = matrix_gfx::SCROLL_PAUSE_PX;
-            }
+        - lambda: 'if (show) id(web_panel)->switch_to("Text");'
 

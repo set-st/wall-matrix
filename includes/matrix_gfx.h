@@ -296,4 +296,27 @@ inline void draw_rgb(Display &it, int x, int y, int w, int h, const uint8_t *rgb
     }
 }
 
+// Застосунок / сповіщення з іконкою: іконка зліва (по центру по вертикалі), праворуч текст.
+// Текст: один рядок — по центру по вертикалі; "\n" — два рядки. progress ≥ 0 — смужка внизу.
+inline void draw_app(Display &it, BaseFont *font, const uint8_t *icon, int iw, int ih, const std::string &text,
+                     Color c, int progress, Color pc, float step, float &p0, float &p1) {
+  int x0 = 0;
+  if (icon != nullptr) {
+    draw_rgb(it, 0, (16 - ih) / 2, iw, ih, icon, 1.0f);
+    x0 = iw + 1;
+  }
+  const int w = 32 - x0;
+  const size_t nl = text.find('\n');
+  if (nl == std::string::npos) {
+    draw_line(it, font, text, x0, progress >= 0 ? 2 : 4, w, c, p0, step);
+  } else {
+    draw_line(it, font, text.substr(0, nl), x0, 0, w, c, p0, step);
+    draw_line(it, font, text.substr(nl + 1), x0, 8, w, c, p1, step);
+  }
+  if (progress >= 0) {
+    it.horizontal_line(x0, 15, w, fade(pc, 0.12f));
+    it.horizontal_line(x0, 15, (w * std::min(progress, 100) + 50) / 100, pc);
+  }
+}
+
 }  // namespace matrix_gfx

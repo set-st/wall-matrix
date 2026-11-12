@@ -1,35 +1,5 @@
-# Матриця 32×16: світлодіоди, шрифти, іконки, екрани
-
-globals:
-  # Поточний екран: 0 — годинник, 1 — дата, 2 — погода, 3 — текст
-  - id: screen_idx
-    type: int
-    initial_value: "0"
-  - id: screen_ticks
-    type: int
-    initial_value: "0"
-  # Сповіщення
-  - id: notify_active
-    type: bool
-    initial_value: "false"
-  - id: notify_text
-    type: std::string
-  - id: notify_until
-    type: uint32_t
-    initial_value: "0"
-  - id: notify_color
-    type: uint32_t
-    initial_value: "0xFFFFFF"
-  - id: scroll_pos
-    type: float
-    initial_value: "32"
-  # Позиції прокручування рядків текстового застосунку
-  - id: line1_pos
-    type: float
-    initial_value: "20"
-  - id: line2_pos
-    type: float
-    initial_value: "20"
+# Матриця 32×16: світлодіоди, шрифти, іконки погоди і малювання.
+# Який застосунок чи сповіщення показувати — вирішує компонент matrix_web (id: web_panel).
 
 light:
   # Фізична стрічка: піксель 0 — вбудований LED плати, 1..512 — матриця.
@@ -115,7 +85,9 @@ display:
       return tile * 64 + ly * 8 + lx;  // індекс усередині partition «Matrix»
     lambda: |-
       using matrix_gfx::dim;
+      using matrix_gfx::fade;
       using matrix_gfx::hex_color;
+      auto *web = id(web_panel);
 
       // Яскравість і обмеження струму — лінійно, через корекцію стрічки (гамму вже
       // зроблено в dim()). Так кольори зберігають глибину, і немає спалаху білим,
@@ -129,37 +101,46 @@ display:
           applied = b;
         }
       }
-      const float k = 1.0f;  // кольори малюємо на повну
       const float step = id(scroll_speed).state * 0.05f;  // 50 мс на кадр
 
       if (id(test_pattern).state) {
-        matrix_gfx::draw_test(it, k);
+        matrix_gfx::draw_test(it, 1.0f);
         return;
       }
 
+      const auto t = id(ha_time).now();
+      const float temp = id(weather_temp).state;
+      const bool upper = id(text_upper).state;
+      auto prep = [&](const std::string &s) {
+        const std::string e = matrix_gfx::expand(s, t, temp);
+        return upper ? matrix_gfx::to_upper(e) : e;
+      };
+      const Color white = dim(Color(255, 255, 255), 1.0f);
+
       // --- Сповіщення поверх усього ---
-      if (id(notify_active)) {
-        if ((int32_t) (id(notify_until) - millis()) > 0) {
-          matrix_gfx::draw_notification(it, id(f_text),
-              id(text_upper).state ? matrix_gfx::to_upper(id(notify_text)) : id(notify_text),
-              dim(Color(id(notify_color)), k), dim(Color(255, 255, 255), k),
-              id(scroll_pos), step);
-          return;
+      if (const auto *n = web->current_notification()) {
+        const std::string text = prep(n->text);
+        const auto *ic = web->icon(n->icon);
+        if (ic != nullptr) {
+          matrix_gfx::draw_app(it, id(f_small), ic->frame_at(millis()), ic->w, ic->h, text, dim(Color(n->color), 1.0f),
+                               -1, white, step, web->scroll(0), web->scroll(1));
+        } else {
+          const uint32_t frame = n->frame_color ? n->frame_color : matrix_gfx::parse_hex(id(color_notify).state, 0xFF8000);
+          matrix_gfx::draw_notification(it, id(f_text), text, dim(Color(frame), 1.0f), dim(Color(n->color), 1.0f),
+                                        web->scroll(2), step);
         }
-        id(notify_active) = false;
+        return;
       }
 
-      const auto t = id(ha_time).now();
-      const Color white = dim(Color(255, 255, 255), k);
-
-      switch (id(screen_idx)) {
-        case 1:
-          matrix_gfx::draw_date(it, t, dim(hex_color(id(color_date).state, 0xFFFFFF), k),
-                                dim(hex_color(id(color_accent).state, 0x00A0FF), k),
+      const auto app = web->current_app();
+      switch (app.kind) {
+        case matrix_web::AppKind::DATE:
+          matrix_gfx::draw_date(it, t, dim(hex_color(id(color_date).state, 0xFFFFFF), 1.0f),
+                                dim(hex_color(id(color_accent).state, 0x00A0FF), 1.0f),
                                 id(week_start).current_option() == std::string("Monday"));
           break;
 
-        case 2: {
+        case matrix_web::AppKind::WEATHER: {
           const std::string &w = id(weather_state).state;
           image::Image *icon = id(ic_cloudy);
           Color ic(170, 170, 190);
@@ -172,54 +153,38 @@ display:
           else if (w == "lightning" || w == "lightning-rainy") { icon = id(ic_lightning); ic = Color(255, 230, 0); }
           else if (w == "fog")                       { icon = id(ic_fog);       ic = Color(140, 140, 140); }
           else if (w == "windy" || w == "windy-variant") { icon = id(ic_windy); ic = Color(180, 220, 255); }
-          it.image(0, 0, icon, dim(ic, k));
-          matrix_gfx::draw_temperature(it, 17, 15, id(weather_temp).state, white);
+          it.image(0, 0, icon, dim(ic, 1.0f));
+          matrix_gfx::draw_temperature(it, 17, 15, temp, white);
           break;
         }
 
-        case 3: {
-          // Іконка 16×16 зліва (якщо завантажена), праворуч — два рядки
-          const uint8_t *icon = id(text_icon).state ? id(web_panel)->icon_frame(millis()) : nullptr;
+        case matrix_web::AppKind::TEXT: {
+          // Іконка з бібліотеки зліва (якщо увімкнена), праворуч — два рядки
+          const auto *ic = id(text_icon).state ? web->icon(id(text_icon_name).state) : nullptr;
           int x0 = 0, w = 32;
-          if (icon != nullptr) {
-            matrix_gfx::draw_rgb(it, 0, 0, 16, 16, icon, k);
-            x0 = 17;
-            w = 15;
+          if (ic != nullptr) {
+            matrix_gfx::draw_rgb(it, 0, (16 - ic->h) / 2, ic->w, ic->h, ic->frame_at(millis()), 1.0f);
+            x0 = ic->w + 1;
+            w = 32 - x0;
           }
-          const float temp = id(weather_temp).state;
-          auto prep = [&](const std::string &s) {
-            const std::string e = matrix_gfx::expand(s, t, temp);
-            return id(text_upper).state ? matrix_gfx::to_upper(e) : e;
-          };
           matrix_gfx::draw_line(it, id(f_small), prep(id(text_line1).state), x0, 0, w,
-                                dim(hex_color(id(color_line1).state, 0xFFD200), k), id(line1_pos), step);
+                                dim(hex_color(id(color_line1).state, 0xFFD200), 1.0f), web->scroll(0), step);
           matrix_gfx::draw_line(it, id(f_small), prep(id(text_line2).state), x0, 8, w,
-                                dim(hex_color(id(color_line2).state, 0xFFFFFF), k), id(line2_pos), step);
+                                dim(hex_color(id(color_line2).state, 0xFFFFFF), 1.0f), web->scroll(1), step);
+          break;
+        }
+
+        case matrix_web::AppKind::PUSHED: {
+          const auto *a = app.app;
+          const auto *ic = web->icon(a->icon);
+          matrix_gfx::draw_app(it, id(f_small), ic ? ic->frame_at(millis()) : nullptr, ic ? ic->w : 0, ic ? ic->h : 0,
+                               prep(a->text), dim(Color(a->color), 1.0f), a->progress,
+                               dim(Color(a->progress_color), 1.0f), step, web->scroll(0), web->scroll(1));
           break;
         }
 
         default:
-          matrix_gfx::draw_clock(it, t, dim(hex_color(id(color_clock).state, 0xFFFFFF), k),
+          matrix_gfx::draw_clock(it, t, dim(hex_color(id(color_clock).state, 0xFFFFFF), 1.0f),
                                  id(clock_24h).state, id(clock_blink).state, id(clock_seconds_bar).state);
           break;
       }
-
-interval:
-  # Гортання екранів (порядок і час — у веб-панелі)
-  - interval: 1s
-    then:
-      - lambda: |-
-          if (id(notify_active)) return;
-          const bool en[4] = {
-              id(app_clock).state,
-              id(app_date).state,
-              id(app_weather).state && !std::isnan(id(weather_temp).state),
-              id(app_text).state && (!id(text_line1).state.empty() || !id(text_line2).state.empty())};
-          const int dur[4] = {
-              (int) id(clock_secs).state,
-              (int) id(date_secs).state,
-              (int) id(weather_secs).state,
-              (int) id(text_secs).state};
-          const int cur = id(screen_idx);
-          if (en[cur] && ++id(screen_ticks) < dur[cur]) return;
-          id(next_screen).execute();
