@@ -220,6 +220,17 @@
   .dirty { color: var(--warn); font-size: 12px; }
   @media (max-width: 600px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
 
+  /* імпорт іконок */
+  .imp-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 14px 0 6px; }
+  .imp-row input[type=text] { font-family: var(--mono); }
+  .imp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; padding: 10px 0 14px;
+    max-height: 340px; overflow-y: auto; }
+  .imp-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; background: var(--con);
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+  .imp-tile:hover, .imp-tile.on { border-color: var(--acc); }
+  .imp-tile img { width: 40px; height: 40px; image-rendering: pixelated; background: #000; border-radius: 4px; }
+  .imp-tile span { font: 10.5px var(--mono); color: var(--dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   /* Wi-Fi */
   .wifi-nets { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 0; max-height: 260px; overflow-y: auto; }
   .wifi-net { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; background: var(--con);
@@ -360,8 +371,24 @@
     <label class="btn primary" for="icFile" style="background:var(--acc);color:var(--onacc);border-color:var(--acc)">Обрати файл і завантажити</label>
     <input type="file" id="icFile" accept="image/png,image/gif,image/jpeg,image/webp,image/bmp">
   </div>
-  <div class="muted" style="padding-bottom:14px">PNG, JPG, WebP, BMP або GIF (до 16 кадрів; потрібен Chrome). Картинка зменшується
+  <div class="muted" style="padding-bottom:14px">PNG, JPG, WebP, BMP або GIF (до 16 кадрів). Картинка зменшується
     у браузері; чорні пікселі прозорі. Ім'я порожнє — візьметься з назви файлу.</div>
+</template>
+<template id="tpl-icon-import">
+  <div class="imp-row">
+    <input type="text" id="impSearch" placeholder="Пошук за назвою: sun, home, wifi…" style="flex:1;min-width:180px">
+    <input type="text" id="impId" placeholder="номер" style="width:90px">
+    <input type="text" id="impName" maxlength="23" placeholder="ім'я (типово — номер)" style="width:170px">
+    <select id="impSize"><option value="8">8×8</option><option value="16">16×16 (збільшити)</option></select>
+    <select id="impSrc"><option value="lm">LaMetric</option><option value="hub">AWTRIX Hub</option></select>
+    <button class="primary" id="impGo">Імпортувати</button>
+  </div>
+  <div class="imp-row" id="impHubRow" style="display:none;padding-top:0">
+    <input type="password" id="impHubKey" placeholder="Ключ AWTRIX Hub (зберігається лише в цьому браузері)" style="flex:1;min-width:240px" autocomplete="off">
+  </div>
+  <div class="muted" id="impStatus">Каталог LaMetric — ті самі номери іконок, що й у класичному AWTRIX (наприклад, 608, 1221).
+    Пошук охоплює ~2000 популярних іконок; будь-яку іншу можна імпортувати за номером.</div>
+  <div class="imp-grid" id="impGrid"></div>
 </template>
 <template id="tpl-icon-lib">
   <div class="store"><i id="icStore"></i></div>
@@ -411,6 +438,7 @@ const PAGES = {
       { t: "switch", id: "text_icon", label: "Показувати іконку", hint: "Текст тоді займає праву частину екрана." } ] },
   ],
   icons: [
+    { h: "Імпорт із каталогу", sub: "Іконки LaMetric / AWTRIX за номером або назвою.", tpl: "tpl-icon-import" },
     { h: "Додати іконку", sub: "Іконку можна вказати в застосунку, сповіщенні чи тексті за іменем.", tpl: "tpl-icon-add" },
     { h: "Бібліотека", sub: "Зберігається у флеші панелі.", tpl: "tpl-icon-lib" },
   ],
@@ -484,6 +512,18 @@ function toast(msg) {
   const t = $("toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(toast.tm); toast.tm = setTimeout(() => t.classList.remove("show"), 1800);
 }
+// Не більше 2 одночасних запитів до панелі: у ESP обмаль сокетів, а браузер на кожен
+// паралельний запит відкриває окреме з'єднання й тримає його (keep-alive).
+const NET_MAX = 2;
+let netActive = 0;
+const netWait = [];
+async function netRun(task) {
+  if (netActive >= NET_MAX) await new Promise(r => netWait.push(r));
+  netActive++;
+  try { return await task(); }
+  finally { netActive--; const next = netWait.shift(); if (next) next(); }
+}
+
 async function post(url, data, body, type) {
   const opts = { method: "POST" };
   if (body != null) {
@@ -494,7 +534,7 @@ async function post(url, data, body, type) {
     opts.body = new URLSearchParams(data || {});
   }
   try {
-    const r = await fetch(url, opts);
+    const r = await netRun(async () => { const x = await fetch(url, opts); await x.arrayBuffer(); return x; });
     if (!r.ok) throw new Error(r.status);
     setTimeout(loadState, 250);
     return true;
@@ -508,9 +548,11 @@ async function api(method, path, body, type) {
     opts.body = (type || body instanceof Uint8Array) ? body : JSON.stringify(body);
     opts.headers = { "Content-Type": type || (body instanceof Uint8Array ? "application/octet-stream" : "application/json") };
   }
-  const r = await fetch("/api/v1/" + path, opts);
-  const ct = r.headers.get("Content-Type") || "";
-  const data = ct.includes("json") ? await r.json() : new Uint8Array(await r.arrayBuffer());
+  const [r, data] = await netRun(async () => {
+    const r = await fetch("/api/v1/" + path, opts);
+    const ct = r.headers.get("Content-Type") || "";
+    return [r, ct.includes("json") ? await r.json() : new Uint8Array(await r.arrayBuffer())];
+  });
   if (!r.ok) throw new Error((data && data.error && data.error.message) || ("HTTP " + r.status));
   return data;
 }
@@ -693,9 +735,11 @@ function build() {
 /* ===================== стан ===================== */
 async function loadState() {
   try {
-    const r = await fetch("/api/state", { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status);
-    state = await r.json();
+    state = await netRun(async () => {
+      const r = await fetch("/api/state", { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    });
     binders.forEach(f => { try { f(state); } catch (e) { console.warn(e); } });
     online(true);
   } catch (e) { online(false); }
@@ -736,9 +780,8 @@ const draw = () => drawPixels(ctx, cv, state ? state.w : 32, state ? state.h : 1
 async function liveLoop() {
   if (!document.hidden && $("page-dash").classList.contains("active")) {
     try {
-      const r = await fetch("/api/live", { cache: "no-store" });
-      if (r.ok) {
-        const hex = await r.text();
+      const hex = await netRun(async () => { const r = await fetch("/api/live", { cache: "no-store" }); return r.ok ? r.text() : null; });
+      if (hex) {
         const n = hex.length / 2, f = new Uint8Array(n);
         for (let i = 0; i < n; i++) f[i] = parseInt(hex.substr(i * 2, 2), 16);
         frame = f; draw();
@@ -1162,23 +1205,181 @@ function toRGB(img, w, h, size) {
   }
   return out;
 }
-async function decodeFrames(file, size) {
-  if (file.type === "image/gif" && "ImageDecoder" in window) {
-    const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: file.type });
-    await dec.tracks.ready;
-    const total = dec.tracks.selectedTrack.frameCount, n = Math.min(total, MAX_FRAMES), frames = [];
-    for (let i = 0; i < n; i++) {
-      const { image } = await dec.decode({ frameIndex: i });
-      const delay = Math.min(10000, Math.max(20, Math.round((image.duration || 100000) / 1000)));
-      frames.push({ delay, rgb: toRGB(image, image.displayWidth, image.displayHeight, size) });
-      image.close();
+// Власний декодер GIF: ImageDecoder (WebCodecs) доступний лише на HTTPS/localhost,
+// а панель відкривається по http://. Повертає повні кадри RGBA з урахуванням
+// прозорості, затримок і способу заміни кадру (disposal).
+function decodeGif(buf) {
+  const d = new Uint8Array(buf);
+  if (String.fromCharCode(...d.slice(0, 3)) !== "GIF") throw new Error("не GIF");
+  const W = d[6] | d[7] << 8, H = d[8] | d[9] << 8;
+  let p = 13, gct = null;
+  if (d[10] & 0x80) { const n = 3 << ((d[10] & 7) + 1); gct = d.subarray(p, p + n); p += n; }
+  const canvas = new Uint8ClampedArray(W * H * 4), frames = [];
+  let delay = 100, transIdx = -1, disposal = 0, saved = null;
+  const blocks = () => { const parts = []; let len = 0;
+    while (d[p]) { parts.push(d.subarray(p + 1, p + 1 + d[p])); len += d[p]; p += d[p] + 1; }
+    p++; const out = new Uint8Array(len); let o = 0; for (const x of parts) { out.set(x, o); o += x.length; } return out; };
+  while (p < d.length) {
+    const b = d[p++];
+    if (b === 0x3B) break;
+    if (b === 0x21) {
+      const label = d[p++];
+      if (label === 0xF9) {
+        const flags = d[p + 1]; disposal = (flags >> 2) & 7;
+        delay = (d[p + 2] | d[p + 3] << 8) * 10 || 100;
+        transIdx = flags & 1 ? d[p + 4] : -1;
+        p += d[p] + 1; while (d[p]) p += d[p] + 1; p++;
+      } else blocks();
+      continue;
     }
-    if (total > MAX_FRAMES) toast(`Узято перші ${MAX_FRAMES} кадрів`);
+    if (b !== 0x2C) break;
+    const fx = d[p] | d[p + 1] << 8, fy = d[p + 2] | d[p + 3] << 8, fw = d[p + 4] | d[p + 5] << 8, fh = d[p + 6] | d[p + 7] << 8;
+    const flags = d[p + 8]; p += 9;
+    let ct = gct;
+    if (flags & 0x80) { const n = 3 << ((flags & 7) + 1); ct = d.subarray(p, p + n); p += n; }
+    const minSize = d[p++], idx = lzwDecode(minSize, blocks(), fw * fh);
+    if (disposal === 3) saved = canvas.slice();
+    const rows = flags & 0x40 ? interlaceRows(fh) : null;
+    for (let y = 0; y < fh; y++) {
+      const ry = rows ? rows[y] : y;
+      for (let x = 0; x < fw; x++) {
+        const ci = idx[y * fw + x];
+        if (ci === transIdx || !ct) continue;
+        const cx = fx + x, cy = fy + ry;
+        if (cx >= W || cy >= H) continue;
+        const o = (cy * W + cx) * 4;
+        canvas[o] = ct[ci * 3]; canvas[o + 1] = ct[ci * 3 + 1]; canvas[o + 2] = ct[ci * 3 + 2]; canvas[o + 3] = 255;
+      }
+    }
+    frames.push({ delay, rgba: canvas.slice() });
+    if (disposal === 2) for (let y = fy; y < Math.min(H, fy + fh); y++) canvas.fill(0, (y * W + fx) * 4, (y * W + Math.min(W, fx + fw)) * 4);
+    else if (disposal === 3 && saved) canvas.set(saved);
+    delay = 100; transIdx = -1; disposal = 0;
+  }
+  return { w: W, h: H, frames };
+}
+function interlaceRows(h) {
+  const rows = []; for (const [start, step] of [[0, 8], [4, 8], [2, 4], [1, 2]]) for (let y = start; y < h; y += step) rows.push(y);
+  return rows;
+}
+function lzwDecode(minSize, data, count) {
+  const clear = 1 << minSize, eoi = clear + 1, out = new Uint8Array(count);
+  const prefix = new Int16Array(4096), suffix = new Uint8Array(4096), stack = new Uint8Array(4097);
+  for (let i = 0; i < clear; i++) { prefix[i] = -1; suffix[i] = i; }
+  let size = minSize + 1, mask = (1 << size) - 1, next = eoi + 1, prev = -1, first = 0, bits = 0, datum = 0, pos = 0, op = 0;
+  while (op < count) {
+    while (bits < size) { if (pos >= data.length) return out; datum |= data[pos++] << bits; bits += 8; }
+    let code = datum & mask; datum >>>= size; bits -= size;
+    if (code === clear) { size = minSize + 1; mask = (1 << size) - 1; next = eoi + 1; prev = -1; continue; }
+    if (code === eoi) break;
+    if (prev === -1) { out[op++] = suffix[code]; prev = first = code; continue; }
+    const inCode = code; let sp = 0;
+    if (code >= next) { stack[sp++] = first; code = prev; }
+    while (code >= clear) { stack[sp++] = suffix[code]; code = prefix[code]; }
+    first = suffix[code]; stack[sp++] = first;
+    if (next < 4096) { prefix[next] = prev; suffix[next] = first; next++;
+      if ((next & mask) === 0 && next < 4096) { size++; mask = (1 << size) - 1; } }
+    prev = inCode;
+    while (sp > 0 && op < count) out[op++] = stack[--sp];
+  }
+  return out;
+}
+
+async function decodeFrames(file, size) {
+  const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name || "");
+  if (isGif) {
+    const g = decodeGif(await file.arrayBuffer());
+    if (!g.frames.length) throw new Error("GIF без кадрів");
+    const c = document.createElement("canvas"); c.width = g.w; c.height = g.h;
+    const x = c.getContext("2d");
+    const frames = g.frames.slice(0, MAX_FRAMES).map(f => {
+      x.putImageData(new ImageData(f.rgba, g.w, g.h), 0, 0);
+      return { delay: Math.min(10000, Math.max(20, f.delay)), rgb: toRGB(c, g.w, g.h, size) };
+    });
+    if (g.frames.length > MAX_FRAMES) toast(`Узято перші ${MAX_FRAMES} кадрів`);
     return frames;
   }
   const bmp = await createImageBitmap(file);
   return [{ delay: 1000, rgb: toRGB(bmp, bmp.width, bmp.height, size) }];
 }
+
+/* ===================== імпорт іконок ===================== */
+const LM = "https://developer.lametric.com";
+const HUB_KEY = "wall-matrix-hub-key";
+let lmCatalog = null;
+
+async function loadLmCatalog() {
+  if (lmCatalog) return lmCatalog;
+  $("impStatus").textContent = "Завантажую каталог LaMetric…";
+  const r = await fetch(LM + "/api/v2/icons", { cache: "force-cache" });
+  if (!r.ok) throw new Error("каталог: HTTP " + r.status);
+  lmCatalog = (await r.json()).data.map(i => ({ id: i.id, title: i.title || "", anim: i.type === "movie" }));
+  return lmCatalog;
+}
+
+async function searchIcons() {
+  const q = $("impSearch").value.trim().toLowerCase();
+  if (!q) { $("impGrid").replaceChildren(); return; }
+  let cat;
+  try { cat = await loadLmCatalog(); } catch (e) { $("impStatus").textContent = "Не вдалося завантажити каталог: " + e.message; return; }
+  const hits = cat.filter(i => i.title.toLowerCase().includes(q) || String(i.id) === q).slice(0, 96);
+  $("impStatus").textContent = hits.length ? `Знайдено: ${hits.length}${hits.length === 96 ? "+" : ""}. Натисніть іконку, щоб вибрати.` : "Нічого не знайдено — спробуйте англійською або за номером.";
+  $("impGrid").replaceChildren(...hits.map(i => {
+    const t = el("div", "imp-tile"), img = el("img"), cap = el("span");
+    img.src = `${LM}/content/apps/icon_thumbs/${i.id}`; img.loading = "lazy"; img.alt = i.title;
+    cap.textContent = `${i.id}${i.anim ? " ▶" : ""}`; t.title = i.title;
+    t.append(img, cap);
+    t.onclick = () => {
+      document.querySelectorAll(".imp-tile.on").forEach(x => x.classList.remove("on"));
+      t.classList.add("on"); $("impId").value = i.id; $("impName").value = "";
+    };
+    return t;
+  }));
+}
+
+async function fetchIconFile(src, id) {
+  if (src === "hub") {
+    const key = $("impHubKey").value.trim();
+    if (!key) throw new Error("потрібен ключ AWTRIX Hub");
+    localStorage.setItem(HUB_KEY, key);
+    for (const ext of ["gif", "jpg"]) {
+      const r = await fetch(`https://awtrix.de/icons/${encodeURIComponent(id)}.${ext}`, { headers: { Authorization: "Bearer " + key }, credentials: "omit" });
+      if (r.ok) return new File([await r.blob()], `${id}.${ext}`, { type: ext === "gif" ? "image/gif" : "image/jpeg" });
+      if (r.status === 401 || r.status === 403) throw new Error("Hub не прийняв ключ");
+    }
+    throw new Error("іконки немає в Hub");
+  }
+  const r = await fetch(`${LM}/content/apps/icon_thumbs/${encodeURIComponent(id)}`);
+  if (!r.ok) throw new Error(r.status === 404 ? "іконки з таким номером немає" : "HTTP " + r.status);
+  const blob = await r.blob();
+  if (!blob.type.startsWith("image/")) throw new Error("іконки з таким номером немає");
+  return new File([blob], `${id}.${blob.type.split("/")[1]}`, { type: blob.type });
+}
+
+async function importIcon() {
+  const id = $("impId").value.trim();
+  if (!/^[A-Za-z0-9_-]{1,23}$/.test(id)) return toast("Вкажіть номер іконки або виберіть її в пошуку");
+  const name = ($("impName").value.trim() || id).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 23);
+  const size = +$("impSize").value;
+  $("impStatus").textContent = `Імпортую ${id}…`;
+  try {
+    const file = await fetchIconFile($("impSrc").value, id);
+    await uploadIcon(file, name, size);
+    $("impStatus").textContent = `Іконку ${id} збережено як «${name}».`;
+  } catch (e) { $("impStatus").textContent = "Помилка: " + e.message; toast("Помилка: " + e.message); }
+}
+
+function setupImport() {
+  let t = null;
+  $("impSearch").oninput = () => { clearTimeout(t); t = setTimeout(searchIcons, 250); };
+  $("impGo").onclick = importIcon;
+  $("impId").onkeydown = e => { if (e.key === "Enter") importIcon(); };
+  const hub = () => { $("impHubRow").style.display = $("impSrc").value === "hub" ? "" : "none"; };
+  $("impSrc").onchange = hub;
+  $("impHubKey").value = localStorage.getItem(HUB_KEY) || "";
+  hub();
+}
+
 async function uploadIcon(file, name, size) {
   if (!/^[A-Za-z0-9_-]{1,23}$/.test(name)) throw new Error("ім'я: латиниця, цифри, _ і -");
   const frames = await decodeFrames(file, size);
@@ -1193,6 +1394,7 @@ async function uploadIcon(file, name, size) {
 build();
 setupHaForm();
 setupWifiForm();
+setupImport();
 draw();
 loadState();
 loadIcons();

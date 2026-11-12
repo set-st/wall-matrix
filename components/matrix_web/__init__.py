@@ -17,6 +17,7 @@ import esphome.config_validation as cv
 from esphome.components import (
     button,
     light,
+    socket,
     number,
     select,
     sensor,
@@ -75,7 +76,10 @@ def _schema():
     return cv.Schema(schema).extend(cv.COMPONENT_SCHEMA)
 
 
-CONFIG_SCHEMA = _schema()
+# HTTP-сервер ESP-IDF тримає до 7 клієнтських з'єднань (keep-alive). Без цього резерву
+# ESPHome рахує лише сокет, що слухає, і на все (API, OTA, HTTP, mDNS, SNTP) лишається 12
+# сокетів: відкрита веб-панель забирала їх, і нові з'єднання (HA, OTA) отримували відмову.
+CONFIG_SCHEMA = cv.All(_schema(), socket.consume_sockets(7, "matrix_web"))
 
 
 async def to_code(config):
