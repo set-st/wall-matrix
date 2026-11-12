@@ -79,7 +79,7 @@ GPIO4  ◄─ дільник: 3.3V ─ фоторезистор ─┬─ 10 к�
 
 ## Веб-панель
 
-`http://wall-matrix.local/` (або за IP), логін/пароль — `web_username` / `web_password` у `secrets.yaml`.
+`http://wall-matrix.local/` (або за IP). Авторизації немає: панель розрахована на домашню мережу.
 
 | Вкладка | Що там |
 |---|---|
@@ -132,7 +132,7 @@ data:
 ## REST API (у стилі AWTRIX NG)
 
 Маршрути, методи й формат помилок (`{"error":{"code":"…","message":"…"}}`) — як в AWTRIX NG.
-Усі запити — з digest-авторизацією (`web_username` / `web_password`).
+Авторизації немає (як і в AWTRIX NG з вимкненим `authEnabled`).
 
 ### Застосунки
 
@@ -197,9 +197,6 @@ rest_command:
     url: "http://wall-matrix.local/api/v1/apps/{{ name }}"
     method: post
     content_type: "application/json"
-    authentication: digest
-    username: !secret matrix_user
-    password: !secret matrix_password
     payload: '{"text": "{{ text }}", "icon": "{{ icon }}", "lifetimeMs": 900000}'
 ```
 

@@ -24,8 +24,8 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
   через Windows Python: `py -m esptool --chip esp32s3 --port COM3 --baud 460800 write_flash 0x0 firmware.factory.bin`.
   esptool стоїть як **4.8.1 з `--no-deps`** (+ pyserial, intelhex): esptool 5 тягне PyYAML,
   який не збирається під Windows Python 3.15.
-- Браузер: підключено Claude in Chrome (Windows). Користувач сам авторизований у панелі —
-  пароль не вводити. Клікати за `ref` (find), а не координатами: сторінка зсувається після
+- Браузер: підключено Claude in Chrome (Windows). Паролів і токенів не вводити (токен HA для
+  пошуку сутностей вводить користувач). Клікати за `ref` (find), а не координатами: сторінка зсувається після
   перемикання вкладок (так якось випадково змінилася яскравість).
 - Оригінальний AWTRIX NG користувача: http://192.168.2.101/ — звідти взято візуальний стиль
   (палітра в :root у web/index.html). У його налаштуваннях нічого не змінювати.
@@ -34,7 +34,8 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
 ## Веб-панель
 - **Власна** (штатний `web_server` ESPHome видалено, бо займає «/»): компонент
   `components/matrix_web` + сторінка `web/index.html` (gzip, вшивається під час збирання).
-  Digest-auth, логін/пароль — `web_*` у secrets.yaml.
+  **Без авторизації** — рішення користувача (локальна мережа). Компонент її підтримує:
+  `username`/`password` у блоці `matrix_web:` вмикають digest для всіх маршрутів.
 - Сутності для API перелічуються за YAML id у блоці `matrix_web:` у packages/admin.yaml —
   нове налаштування додавати туди **і** в `PAGES` в index.html.
 - Перевірка картинки без матриці: завантажити /api/live і відмалювати (так знайшовся
@@ -48,7 +49,7 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
   notifications (+DELETE active|name), display (GET/PATCH), display/screen. Створення pushed
   (`POST /api/v1/apps/<name>`) — наше розширення: у NG UI маршрут не видно. /api/v1/system не робити.
 - ESPHome httpd реєструє лише GET/POST/OPTIONS — PUT/PATCH/DELETE реєструємо самі
-  (`register_raw_methods_`, обгортка `RawRequest` для захищеного конструктора, власна digest-перевірка).
+  (`register_raw_methods_`, обгортка `RawRequest` для захищеного конструктора, digest-перевірка, лише якщо задано username).
 - **Сутності HA під час роботи** (ha.cpp): `watch_ha(entity, attribute, cb)` — як у ~/panel
   (panel_cards.h `subscribe_key`): підписка один раз на пару, повторний виклик замінює обробник
   і віддає останнє значення; якщо HA вже підключений — шле йому `SubscribeHomeAssistantStateResponse`.

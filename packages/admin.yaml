@@ -1,4 +1,4 @@
-# Налаштування панелі та веб-панель: http://wall-matrix.local/ (логін/пароль — web_* у secrets.yaml)
+# Налаштування панелі та веб-панель: http://wall-matrix.local/ (без авторизації — локальна мережа)
 # Усі налаштування — template-сутності: зберігаються у флеші й видні в Home Assistant.
 # Імена сутностей англійською навмисно: від імені залежать ID у Home Assistant
 # і ключі збереження у флеші (кирилиця перетворилася б на «____»).
@@ -14,8 +14,6 @@ external_components:
 matrix_web:
   id: web_panel
   html: web/index.html
-  username: !secret web_username
-  password: !secret web_password
   light: matrix_light
   width: 32
   height: 16
