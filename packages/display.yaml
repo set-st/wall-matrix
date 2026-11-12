@@ -1,0 +1,220 @@
+# Матриця 32×16: світлодіоди, шрифти, іконки, екрани
+
+globals:
+  # Поточний екран: 0 — годинник, 1 — дата, 2 — погода, 3 — текст
+  - id: screen_idx
+    type: int
+    initial_value: "0"
+  - id: screen_ticks
+    type: int
+    initial_value: "0"
+  # Сповіщення
+  - id: notify_active
+    type: bool
+    initial_value: "false"
+  - id: notify_text
+    type: std::string
+  - id: notify_until
+    type: uint32_t
+    initial_value: "0"
+  - id: notify_color
+    type: uint32_t
+    initial_value: "0xFFFFFF"
+  - id: scroll_pos
+    type: float
+    initial_value: "32"
+  # Позиції прокручування рядків текстового застосунку
+  - id: line1_pos
+    type: float
+    initial_value: "0"
+  - id: line2_pos
+    type: float
+    initial_value: "0"
+
+light:
+  # Фізична стрічка: піксель 0 — вбудований LED плати, 1..512 — матриця.
+  - platform: esp32_rmt_led_strip
+    id: led_strip
+    pin: ${matrix_pin}
+    num_leds: 513
+    rmt_symbols: 192    # канал один — уся RMT-пам'ять S3 йому
+    chipset: WS2812
+    channel_colors: GRB
+    internal: true
+    default_transition_length: 0s
+
+  # Вбудований LED: індикатор Wi-Fi (див. packages/core.yaml)
+  - platform: partition
+    id: status_led
+    name: "Status LED"
+    internal: true
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 0s
+    segments:
+      - id: led_strip
+        from: 0
+        to: 0
+
+  # Матриця 32×16 — на неї малює display
+  - platform: partition
+    id: matrix_light
+    name: "Matrix"
+    # Дисплей малює, лише коли світло увімкнене
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 0s
+    # Гамму робить matrix_gfx::dim(); тут лише лінійне масштабування
+    gamma_correct: 1.0
+    # Початкова корекція; далі її задає lambda дисплея (max_power × яскравість)
+    color_correct:
+      - ${max_power}
+      - ${max_power}
+      - ${max_power}
+    segments:
+      - id: led_strip
+        from: 1
+        to: 512
+
+font:
+  # Великий піксельний шрифт 8×8 — для сповіщень
+  - file: "gfonts://Press Start 2P"
+    id: f_text
+    size: 8
+    glyphs: &glyphs ' !"#$%&()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz°«»–—’ʼАБВГҐДЕЄЁЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгґдеєёжзиіїйклмнопрстуфхцчшщъыьэюя'
+  # Дрібний піксельний шрифт (великі літери 5 px, ~8 символів на рядок) — для двох рядків
+  - file: "gfonts://Tiny5"
+    id: f_small
+    size: 8
+    glyphs: *glyphs
+
+image:
+  # Іконки погоди 16×16 з Material Design Icons (завантажуються під час збирання)
+  - { platform: file, file: "mdi:weather-sunny", id: ic_sunny, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-night", id: ic_night, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-partly-cloudy", id: ic_partly, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-cloudy", id: ic_cloudy, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-rainy", id: ic_rainy, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-pouring", id: ic_pouring, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-snowy", id: ic_snowy, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-lightning", id: ic_lightning, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-fog", id: ic_fog, resize: 16x16, type: BINARY }
+  - { platform: file, file: "mdi:weather-windy", id: ic_windy, resize: 16x16, type: BINARY }
+
+display:
+  - platform: addressable_light
+    id: matrix
+    addressable_light_id: matrix_light
+    width: 32
+    height: 16
+    update_interval: 50ms
+    pixel_mapper: |-
+      // 8 панелей 8×8 у сітці 4×2, порядок: зліва направо, згори вниз
+      const int tile = (y / 8) * 4 + (x / 8);
+      int lx = x % 8;
+      const int ly = y % 8;
+      if (${panel_serpentine} && (ly % 2 == 1)) lx = 7 - lx;
+      return tile * 64 + ly * 8 + lx;  // індекс усередині partition «Matrix»
+    lambda: |-
+      using matrix_gfx::dim;
+      using matrix_gfx::hex_color;
+
+      // Яскравість і обмеження струму — лінійно, через корекцію стрічки (гамму вже
+      // зроблено в dim()). Так кольори зберігають глибину, і немає спалаху білим,
+      // як при зміні яскравості через light.turn_on.
+      {
+        const float b = id(auto_brightness).state ? id(auto_level) : id(brightness_pct).state / 100.0f;
+        static float applied = -1.0f;
+        if (fabsf(b - applied) > 0.005f) {
+          const float c = ${max_power} * b;
+          static_cast<light::AddressableLight *>(id(matrix_light).get_output())->set_correction(c, c, c);
+          applied = b;
+        }
+      }
+      const float k = 1.0f;  // кольори малюємо на повну
+      const float step = id(scroll_speed).state * 0.05f;  // 50 мс на кадр
+
+      if (id(test_pattern).state) {
+        matrix_gfx::draw_test(it, k);
+        return;
+      }
+
+      // --- Сповіщення поверх усього ---
+      if (id(notify_active)) {
+        if ((int32_t) (id(notify_until) - millis()) > 0) {
+          matrix_gfx::draw_notification(it, id(f_text), id(notify_text),
+              dim(Color(id(notify_color)), k), dim(Color(255, 255, 255), k),
+              id(scroll_pos), step);
+          return;
+        }
+        id(notify_active) = false;
+      }
+
+      const auto t = id(ha_time).now();
+      const Color white = dim(Color(255, 255, 255), k);
+
+      switch (id(screen_idx)) {
+        case 1:
+          matrix_gfx::draw_date(it, t, dim(hex_color(id(color_date).state, 0xFFFFFF), k),
+                                dim(hex_color(id(color_accent).state, 0x00A0FF), k),
+                                id(week_start).current_option() == std::string("Monday"));
+          break;
+
+        case 2: {
+          const std::string &w = id(weather_state).state;
+          image::Image *icon = id(ic_cloudy);
+          Color ic(170, 170, 190);
+          if (w == "sunny")                          { icon = id(ic_sunny);     ic = Color(255, 190, 0); }
+          else if (w == "clear-night")               { icon = id(ic_night);     ic = Color(150, 150, 255); }
+          else if (w == "partlycloudy")              { icon = id(ic_partly);    ic = Color(255, 220, 120); }
+          else if (w == "rainy" || w == "snowy-rainy") { icon = id(ic_rainy);   ic = Color(60, 140, 255); }
+          else if (w == "pouring")                   { icon = id(ic_pouring);   ic = Color(30, 90, 255); }
+          else if (w == "snowy" || w == "hail")      { icon = id(ic_snowy);     ic = Color(220, 240, 255); }
+          else if (w == "lightning" || w == "lightning-rainy") { icon = id(ic_lightning); ic = Color(255, 230, 0); }
+          else if (w == "fog")                       { icon = id(ic_fog);       ic = Color(140, 140, 140); }
+          else if (w == "windy" || w == "windy-variant") { icon = id(ic_windy); ic = Color(180, 220, 255); }
+          it.image(0, 0, icon, dim(ic, k));
+          matrix_gfx::draw_temperature(it, 17, 15, id(weather_temp).state, white);
+          break;
+        }
+
+        case 3: {
+          // Іконка 16×16 зліва (якщо завантажена), праворуч — два рядки
+          const uint8_t *icon = id(text_icon).state ? id(web_panel)->icon_frame(millis()) : nullptr;
+          int x0 = 0, w = 32;
+          if (icon != nullptr) {
+            matrix_gfx::draw_rgb(it, 0, 0, 16, 16, icon, k);
+            x0 = 17;
+            w = 15;
+          }
+          const float temp = id(weather_temp).state;
+          matrix_gfx::draw_line(it, id(f_small), matrix_gfx::expand(id(text_line1).state, t, temp), x0, 0, w,
+                                dim(hex_color(id(color_line1).state, 0xFFD200), k), id(line1_pos), step);
+          matrix_gfx::draw_line(it, id(f_small), matrix_gfx::expand(id(text_line2).state, t, temp), x0, 8, w,
+                                dim(hex_color(id(color_line2).state, 0xFFFFFF), k), id(line2_pos), step);
+          break;
+        }
+
+        default:
+          matrix_gfx::draw_clock(it, t, dim(hex_color(id(color_clock).state, 0xFFFFFF), k),
+                                 id(clock_24h).state, id(clock_blink).state, id(clock_seconds_bar).state);
+          break;
+      }
+
+interval:
+  # Гортання екранів (порядок і час — у веб-панелі)
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (id(notify_active)) return;
+          const bool en[4] = {
+              id(app_clock).state,
+              id(app_date).state,
+              id(app_weather).state && !std::isnan(id(weather_temp).state),
+              id(app_text).state && (!id(text_line1).state.empty() || !id(text_line2).state.empty())};
+          const int dur[4] = {
+              (int) id(clock_secs).state,
+              (int) id(date_secs).state,
+              (int) id(weather_secs).state,
+              (int) id(text_secs).state};
+          const int cur = id(screen_idx);
+          if (en[cur] && ++id(screen_ticks) < dur[cur]) return;
+          id(next_screen).execute();

@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#171717">
+<title>Wall Matrix</title>
+<style>
+  /* Палітра й пропорції — у дусі AWTRIX NG */
+  :root {
+    --bg: #171717;
+    --card: #222221;
+    --card2: #292927;
+    --border: #373632;
+    --brd2: #302f2b;
+    --fg: #f3f1ec;
+    --dim: #a6a198;
+    --acc: #f5a568;
+    --onacc: #23170e;
+    --ok: #8fbf72;
+    --err: #ff9d90;
+    --warn: #ffb65c;
+    --con: #10100f;
+    --trk: #514e47;
+    --r: 12px;
+    --mono: "Cascadia Mono", "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--fg); font: 14px/1.45 "Segoe UI Variable", Aptos, system-ui, sans-serif;
+    background-image: radial-gradient(circle, rgba(245,165,104,.07) 1px, transparent 1.2px);
+    background-size: 16px 16px; min-height: 100vh; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 16px; }
+
+  /* ---------- шапка + навігація ---------- */
+  .top { position: sticky; top: 0; z-index: 5; background: rgba(23,23,23,.92); backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--brd2); margin-bottom: 18px; }
+  .top .wrap { padding-top: 12px; }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .logo { width: 22px; height: 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; }
+  .logo i { background: #3a2a1d; border-radius: 1px; }
+  .logo i.on { background: var(--acc); }
+  .head h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: .2px; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim);
+    font: 12px var(--mono); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--err); }
+  .dot.ok { background: var(--ok); }
+  nav { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin-top: 8px; }
+  nav a { position: relative; padding: 8px 12px 10px; color: var(--dim); text-decoration: none; white-space: nowrap;
+    border-radius: 8px 8px 0 0; font-size: 13.5px; cursor: pointer; user-select: none; }
+  nav a:hover { color: var(--fg); }
+  nav a.active { color: var(--fg); font-weight: 600; }
+  nav a.active::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px;
+    border-radius: 2px; background: var(--acc); }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ---------- картки ---------- */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 14px;
+    box-shadow: 0 1px 2px #0006; }
+  .card.pad { padding: 14px; }
+  .sec-h { padding: 12px 16px 10px; border-bottom: 1px solid var(--brd2); position: relative; }
+  .sec-h::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: 0; width: 3px;
+    background: var(--acc); border-top-left-radius: var(--r); }
+  .sec-h b { display: block; font-size: 15px; }
+  .sec-h span { color: var(--dim); font-size: 12.5px; }
+  .sec-b { padding: 0 16px; }
+
+  /* ---------- рядки налаштувань ---------- */
+  .row { display: flex; align-items: center; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--brd2); }
+  .row:last-child { border-bottom: 0; }
+  .lbl { flex: 1; min-width: 0; }
+  .lbl b { display: block; font-weight: 600; font-size: 13.5px; }
+  .lbl span { display: block; color: var(--dim); font-size: 12px; }
+  .val { color: var(--dim); font: 12px var(--mono); white-space: nowrap; }
+
+  /* ---------- елементи керування ---------- */
+  button, .btn { background: var(--card2); color: var(--fg); border: 1px solid var(--border); border-radius: 9px;
+    padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center;
+    gap: 6px; white-space: nowrap; }
+  button:hover, .btn:hover { border-color: var(--acc); }
+  button.primary { background: var(--acc); border-color: var(--acc); color: var(--onacc); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.danger { color: var(--err); }
+  button.danger:hover { border-color: var(--err); }
+  .ibtn { width: 36px; height: 36px; padding: 0; justify-content: center; font-size: 15px; }
+
+  .sw { position: relative; display: inline-block; width: 42px; height: 24px; flex: 0 0 42px; }
+  .sw input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .sw span { position: absolute; inset: 0; background: var(--trk); border-radius: 24px; cursor: pointer; transition: .18s; }
+  .sw span::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: .18s; box-shadow: 0 1px 2px #0006; }
+  .sw input:checked + span { background: var(--acc); }
+  .sw input:checked + span::before { transform: translateX(18px); }
+
+  input[type=range] { --p: 50%; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 4px; outline: none;
+    background: linear-gradient(to right, var(--acc) var(--p), var(--trk) var(--p)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--acc); cursor: pointer; border: 0; }
+  input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--acc);
+    cursor: pointer; border: 0; }
+  .slider { display: flex; align-items: center; gap: 10px; width: 230px; }
+  .slider input { flex: 1; }
+  .slider .val { min-width: 56px; text-align: right; }
+
+  input[type=number], input[type=text], select, textarea {
+    background: var(--con); color: var(--fg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 9px; font: inherit; font-size: 13px; }
+  input[type=number] { width: 80px; text-align: right; font-family: var(--mono); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--acc); }
+  textarea { width: 100%; min-height: 64px; resize: vertical; }
+  .unit { color: var(--dim); font: 12px var(--mono); }
+  .color { display: flex; align-items: center; gap: 8px; }
+  .color input[type=color] { width: 34px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 7px;
+    background: none; cursor: pointer; }
+  .color input[type=text] { width: 92px; font-family: var(--mono); text-transform: uppercase; }
+  .line-input { flex: 1; min-width: 0; }
+  .row.line .lbl { flex: 0 0 120px; }
+
+  /* ---------- панель: живий екран ---------- */
+  .live { background: #000; border-radius: 9px; padding: 8px; }
+  canvas { width: 100%; height: auto; display: block; }
+  .ctrl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+  .ctrl .grow { flex: 1; min-width: 160px; display: flex; align-items: center; gap: 10px; }
+  .ctrl .grow input { flex: 1; }
+  .ctrl .lab { color: var(--dim); font-size: 13px; }
+  .ctrl .sep { width: 1px; height: 22px; background: var(--border); }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 12px; }
+  .stat small { color: var(--dim); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+  .stat b { display: block; font: 600 20px var(--mono); margin: 4px 0 6px; }
+  .stat b em { font-style: normal; font-size: 11px; color: var(--dim); margin-left: 2px; }
+  .stat .bar { height: 3px; background: var(--trk); border-radius: 3px; overflow: hidden; }
+  .stat .bar i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+  .stat .foot { color: var(--dim); font: 11.5px var(--mono); margin-top: 6px; }
+
+  .info { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 14px; font: 12px var(--mono); color: var(--dim); }
+  .info b { color: var(--fg); font-weight: 600; margin-left: 6px; }
+
+  /* ---------- текст / іконка ---------- */
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 0 4px; }
+  .chip { font: 12px var(--mono); padding: 3px 9px; border-radius: 999px; background: var(--con);
+    border: 1px solid var(--border); cursor: pointer; color: var(--dim); }
+  .chip:hover { border-color: var(--acc); color: var(--fg); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 10px 0 14px; }
+  .muted { color: var(--dim); font-size: 12.5px; }
+  .counter { margin-left: auto; color: var(--dim); font: 12px var(--mono); }
+
+  .icon-box { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 14px 0; }
+  .icon-prev { width: 120px; height: 120px; background: #000; border-radius: 9px; padding: 6px; flex: none; }
+  .icon-side { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 10px; }
+  .icon-side .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type=file] { display: none; }
+
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(80px);
+    background: var(--card2); border: 1px solid var(--border); padding: 9px 14px; border-radius: 9px;
+    transition: .25s; opacity: 0; font-size: 13px; }
+  .toast.show { transform: translateX(-50%); opacity: 1; }
+  footer { color: var(--dim); font-size: 12px; text-align: center; margin: 6px 0 22px; }
+
+  @media (max-width: 600px) {
+    .slider { width: 160px; }
+    .row { flex-wrap: wrap; }
+    .row.line .lbl { flex-basis: 100%; }
+    .ctrl .sep { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="wrap">
+    <div class="head">
+      <div class="logo" id="logo"></div>
+      <h1>Wall Matrix</h1>
+      <div class="status"><span id="statusText">з'єднання…</span><span class="dot" id="statusDot"></span></div>
+    </div>
+    <nav id="nav">
+      <a data-page="dash" class="active">Панель</a>
+      <a data-page="apps">Застосунки</a>
+      <a data-page="text">Текст і іконка</a>
+      <a data-page="look">Вигляд</a>
+      <a data-page="notify">Сповіщення</a>
+      <a data-page="display">Екран</a>
+      <a data-page="system">Система</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ===== Панель ===== -->
+  <section class="page active" id="page-dash">
+    <div class="card pad">
+      <div class="live"><canvas id="live" width="640" height="320"></canvas></div>
+      <div class="ctrl">
+        <label class="sw"><input type="checkbox" id="power"><span></span></label><span class="lab">Матриця</span>
+        <span class="sep"></span>
+        <div class="grow"><span class="lab">Яскравість</span>
+          <input type="range" id="brightness" min="5" max="100" step="1">
+          <span class="val" id="brightnessVal">–</span>
+        </div>
+        <label class="sw"><input type="checkbox" id="autoBr"><span></span></label><span class="lab">Авто</span>
+        <span class="sep"></span>
+        <button class="ibtn" id="showTextQuick" title="Показати текст">T</button>
+        <button class="ibtn" id="next" title="Наступний екран">⏭</button>
+        <button class="ibtn" id="shot" title="Зберегти знімок екрана">⤓</button>
+      </div>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="card info" id="info"></div>
+  </section>
+
+  <!-- ===== Сторінки налаштувань (будуються зі опису PAGES) ===== -->
+  <section class="page" id="page-apps"></section>
+  <section class="page" id="page-text"></section>
+  <section class="page" id="page-look"></section>
+  <section class="page" id="page-notify"></section>
+  <section class="page" id="page-display"></section>
+  <section class="page" id="page-system"></section>
+
+  <footer>Wall Matrix · власна прошивка на ESPHome</footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<!-- Шаблони спеціальних блоків -->
+<template id="tpl-text-extra">
+  <div class="chips" id="chips"></div>
+  <div class="actions">
+    <button class="primary" id="showText">▶ Показати зараз</button>
+    <span class="muted">≈ 8 символів у рядку; довший текст біжить</span>
+  </div>
+</template>
+<template id="tpl-icon">
+  <div class="icon-box">
+    <canvas class="icon-prev" id="iconPrev" width="160" height="160"></canvas>
+    <div class="icon-side">
+      <div class="muted" id="iconInfo">Іконку не завантажено</div>
+      <div class="btns">
+        <label class="btn" for="iconFile">Обрати картинку або GIF</label>
+        <input type="file" id="iconFile" accept="image/png,image/gif,image/jpeg,image/webp,image/bmp">
+        <button class="danger" id="iconClear">Видалити</button>
+      </div>
+      <div class="muted">Зменшується до 16×16 у браузері, GIF — до 16 кадрів. Чорні пікселі прозорі.</div>
+    </div>
+  </div>
+</template>
+<template id="tpl-notify">
+  <div style="padding-top:14px"><textarea id="notifyText" maxlength="120" placeholder="Текст сповіщення"></textarea></div>
+  <div class="actions">
+    <button class="primary" id="notifySend">Надіслати</button>
+    <button id="notifyDismiss">Прибрати</button>
+    <span class="counter" id="notifyCount">0 / 120</span>
+  </div>
+</template>
+
+<script>
+"use strict";
+
+/* ===================== опис інтерфейсу ===================== */
+// Сторінка = список секцій; секція = { h, sub, items | tpl }. Ключі — id сутностей з YAML.
+const PAGES = {
+  apps: [
+    { h: "Годинник", sub: "Великі цифри, двокрапка і смужка секунд.", items: [
+      { t: "switch", id: "app_clock", label: "Показувати" },
+      { t: "number", id: "clock_secs", label: "Тривалість", hint: "Скільки секунд екран тримається.", unit: "с", kind: "box" } ] },
+    { h: "Дата", sub: "День і місяць, знизу — день тижня.", items: [
+      { t: "switch", id: "app_date", label: "Показувати" },
+      { t: "number", id: "date_secs", label: "Тривалість", unit: "с", kind: "box" } ] },
+    { h: "Погода", sub: "Іконка й температура з Home Assistant.", items: [
+      { t: "switch", id: "app_weather", label: "Показувати", hint: "Пропускається, поки немає даних." },
+      { t: "number", id: "weather_secs", label: "Тривалість", unit: "с", kind: "box" } ] },
+    { h: "Текст", sub: "Два рядки дрібним шрифтом та іконка.", items: [
+      { t: "switch", id: "app_text", label: "Показувати", hint: "Налаштування — у вкладці «Текст і іконка»." },
+      { t: "number", id: "text_secs", label: "Тривалість", unit: "с", kind: "box" } ] },
+  ],
+  text: [
+    { h: "Два рядки", sub: "Підстановки: натисніть, щоб вставити у вибраний рядок.", items: [
+      { t: "line", id: "text_line1", color: "color_line1", label: "Рядок 1" },
+      { t: "line", id: "text_line2", color: "color_line2", label: "Рядок 2" } ], tpl: "tpl-text-extra" },
+    { h: "Іконка 16×16", sub: "Картинка або анімований GIF зліва від тексту.", tpl: "tpl-icon", items: [
+      { t: "switch", id: "text_icon", label: "Показувати іконку", hint: "Текст тоді займає праву половину екрана." } ] },
+  ],
+  look: [
+    { h: "Годинник", sub: "Вигляд головного екрана.", items: [
+      { t: "switch", id: "clock_24h", label: "24-годинний формат" },
+      { t: "switch", id: "clock_blink", label: "Блимаюча двокрапка" },
+      { t: "switch", id: "clock_seconds_bar", label: "Смужка секунд", hint: "Нижній рядок заповнюється за хвилину." },
+      { t: "color", id: "color_clock", label: "Колір" } ] },
+    { h: "Дата", sub: "Дата й індикатор днів тижня.", items: [
+      { t: "select", id: "week_start", label: "Тиждень починається з", names: { Monday: "понеділка", Sunday: "неділі" } },
+      { t: "color", id: "color_date", label: "Колір дати" },
+      { t: "color", id: "color_accent", label: "Колір поточного дня" } ] },
+  ],
+  notify: [
+    { h: "Надіслати сповіщення", sub: "З'являється поверх усіх екранів.", tpl: "tpl-notify" },
+    { h: "Параметри", sub: "Типові значення для сповіщень з панелі й Home Assistant.", items: [
+      { t: "color", id: "color_notify", label: "Колір рамки" },
+      { t: "number", id: "notify_duration", label: "Тривалість", unit: "с", kind: "box" },
+      { t: "number", id: "scroll_speed", label: "Швидкість рядка, що біжить", hint: "Також для двох рядків тексту.", unit: "px/s", kind: "slider" } ] },
+  ],
+  display: [
+    { h: "Яскравість", sub: "Наскільки яскравий дисплей.", items: [
+      { t: "number", id: "brightness_pct", label: "Яскравість", hint: "Ігнорується, коли увімкнено автояскравість.", unit: "%", kind: "slider" },
+      { t: "switch", id: "auto_brightness", label: "Автояскравість", hint: "За фоторезистором на GPIO4." },
+      { t: "number", id: "min_brightness_pct", label: "Мінімум автояскравості", unit: "%", kind: "slider" },
+      { t: "sensor", id: "ldr_voltage", label: "Датчик світла", fmt: v => v.toFixed(2) + " В" } ] },
+    { h: "Діагностика", sub: "Перевірка підключення панелей.", items: [
+      { t: "switch", id: "test_pattern", label: "Тестовий екран", hint: "Кожна панель своїм кольором, діагональ і кутові точки." } ] },
+  ],
+  system: [
+    { h: "Пристрій", sub: "Перезавантаження й обслуговування.", items: [
+      { t: "button", id: "btn_restart", label: "Перезавантажити", btn: "Перезавантажити", danger: true, confirm: "Перезавантажити панель?" },
+      { t: "button", id: "btn_safe_mode", label: "Безпечний режим", hint: "Лише OTA-оновлення, без застосунків.", btn: "Увімкнути", danger: true,
+        confirm: "Перезавантажити в безпечний режим?" } ] },
+  ],
+};
+
+// Картки на панелі
+const STATS = [
+  { label: "Wi-Fi", get: s => s.sensor.s_wifi, fmt: v => [v.toFixed(0), "dBm"],
+    bar: v => Math.min(100, Math.max(0, 2 * (v + 100))),
+    foot: v => v > -60 ? "добре" : v > -75 ? "нормально" : "слабко" },
+  { label: "Світло", get: s => s.sensor.ldr_voltage, fmt: v => [v.toFixed(2), "В"], bar: v => v / 3.1 * 100,
+    foot: () => "фоторезистор" },
+  { label: "Яскравість", get: s => s.number.brightness_pct && s.number.brightness_pct.v, fmt: v => [v, "%"], bar: v => v,
+    foot: (v, s) => s.switch.auto_brightness ? "авто" : "вручну", color: "var(--acc)" },
+  { label: "Надворі", get: s => s.sensor.weather_temp, fmt: v => [v.toFixed(1), "°"], foot: () => "Home Assistant" },
+  { label: "Час роботи", get: s => s.sensor.s_uptime, fmt: v => [fmtUptime(v), ""], foot: () => "з моменту запуску" },
+];
+
+const PLACEHOLDERS = [["{time}", "час"], ["{date}", "дата"], ["{day}", "день тижня"], ["{temp}", "температура"]];
+
+/* ===================== утиліти ===================== */
+const $ = id => document.getElementById(id);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+let state = null;
+let lastLine = null;
+const binders = [];
+
+function fmtUptime(s) {
+  s = Math.floor(s);
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}д ${h}г` : h ? `${h}г ${m}хв` : `${m}хв ${s % 60}с`;
+}
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.tm); toast.tm = setTimeout(() => t.classList.remove("show"), 1800);
+}
+async function post(url, data, body, type) {
+  const opts = { method: "POST" };
+  if (body != null) {
+    opts.body = body;
+    opts.headers = { "Content-Type": type || "text/plain; charset=utf-8" };
+    if (data) url += "?" + new URLSearchParams(data);
+  } else {
+    opts.body = new URLSearchParams(data || {});
+  }
+  try {
+    const r = await fetch(url, opts);
+    if (!r.ok) throw new Error(r.status);
+    setTimeout(loadState, 250);
+    return true;
+  } catch (e) { toast("Помилка: " + e.message); return false; }
+}
+const setVal = (type, id, v) => post("/api/set", { type, id, v });
+const press = id => post("/api/press", { id });
+const isHex = v => /^#[0-9a-f]{6}$/i.test(v);
+const fillRange = i => i.style.setProperty("--p", ((i.value - (i.min || 0)) / ((i.max || 100) - (i.min || 0)) * 100) + "%");
+
+/* ===================== елементи ===================== */
+function colorPicker(id) {
+  const box = el("div", "color");
+  const c = el("input"); c.type = "color";
+  const tx = el("input"); tx.type = "text"; tx.maxLength = 7;
+  const send = v => { if (isHex(v)) setVal("text", id, v.toUpperCase()); else toast("Формат: #RRGGBB"); };
+  c.onchange = () => { tx.value = c.value.toUpperCase(); send(c.value); };
+  tx.onchange = () => { let v = tx.value.trim(); if (v[0] !== "#") v = "#" + v; send(v); };
+  binders.push(s => { const v = s.text[id]; if (!v || document.activeElement === tx) return;
+    tx.value = v; if (isHex(v)) c.value = v.toLowerCase(); });
+  box.append(c, tx);
+  return box;
+}
+
+function row(item) {
+  const r = el("div", "row" + (item.t === "line" ? " line" : ""));
+  r.appendChild(el("div", "lbl", `<b>${item.label}</b>` + (item.hint ? `<span>${item.hint}</span>` : "")));
+
+  if (item.t === "switch") {
+    const w = el("label", "sw"); const i = el("input"); i.type = "checkbox"; w.append(i, el("span"));
+    i.onchange = () => setVal("switch", item.id, i.checked ? "on" : "off");
+    binders.push(s => { const v = s.switch[item.id]; if (v !== undefined) i.checked = v; });
+    r.appendChild(w);
+  } else if (item.t === "number" && item.kind === "slider") {
+    const box = el("div", "slider"); const i = el("input"); i.type = "range"; const v = el("span", "val");
+    i.oninput = () => { v.textContent = i.value + " " + item.unit; fillRange(i); };
+    i.onchange = () => setVal("number", item.id, i.value);
+    binders.push(s => { const n = s.number[item.id]; if (!n || document.activeElement === i) return;
+      i.min = n.min; i.max = n.max; i.step = n.step; i.value = n.v; v.textContent = n.v + " " + item.unit; fillRange(i); });
+    box.append(i, v); r.appendChild(box);
+  } else if (item.t === "number") {
+    const i = el("input"); i.type = "number";
+    i.onchange = () => setVal("number", item.id, i.value);
+    binders.push(s => { const n = s.number[item.id]; if (!n || document.activeElement === i) return;
+      i.min = n.min; i.max = n.max; i.step = n.step; i.value = n.v; });
+    r.append(i, el("span", "unit", item.unit));
+  } else if (item.t === "line") {
+    const i = el("input", "line-input"); i.type = "text"; i.maxLength = 64; i.placeholder = "порожньо";
+    i.onfocus = () => lastLine = { input: i, id: item.id };
+    i.onchange = () => setVal("text", item.id, i.value);
+    binders.push(s => { const v = s.text[item.id]; if (v === undefined || document.activeElement === i) return; i.value = v; });
+    r.append(i, colorPicker(item.color));
+  } else if (item.t === "color") {
+    r.appendChild(colorPicker(item.id));
+  } else if (item.t === "select") {
+    const sel = el("select");
+    sel.onchange = () => setVal("select", item.id, sel.value);
+    binders.push(s => { const o = s.select[item.id]; if (!o || document.activeElement === sel) return;
+      if (sel.options.length !== o.o.length) {
+        sel.innerHTML = ""; o.o.forEach(x => { const op = el("option", null, (item.names || {})[x] || x); op.value = x; sel.appendChild(op); });
+      }
+      sel.value = o.v; });
+    r.appendChild(sel);
+  } else if (item.t === "sensor") {
+    const v = el("span", "val", "–");
+    binders.push(s => { const x = s.sensor[item.id]; v.textContent = x == null ? "–" : (item.fmt ? item.fmt(x) : x); });
+    r.appendChild(v);
+  } else if (item.t === "button") {
+    const b = el("button", item.danger ? "danger" : "", item.btn || "Виконати");
+    b.onclick = () => { if (!item.confirm || confirm(item.confirm)) press(item.id).then(ok => ok && toast("Готово")); };
+    r.appendChild(b);
+  }
+  return r;
+}
+
+function section(sec) {
+  const card = el("div", "card");
+  card.appendChild(el("div", "sec-h", `<b>${sec.h}</b>` + (sec.sub ? `<span>${sec.sub}</span>` : "")));
+  const body = el("div", "sec-b");
+  if (sec.tpl === "tpl-icon" || sec.tpl === "tpl-notify") body.appendChild($(sec.tpl).content.cloneNode(true));
+  (sec.items || []).forEach(it => body.appendChild(row(it)));
+  if (sec.tpl === "tpl-text-extra") body.appendChild($(sec.tpl).content.cloneNode(true));
+  card.appendChild(body);
+  return card;
+}
+
+function build() {
+  for (const [page, secs] of Object.entries(PAGES)) secs.forEach(s => $("page-" + page).appendChild(section(s)));
+
+  // навігація
+  document.querySelectorAll("nav a").forEach(a => a.onclick = () => {
+    document.querySelectorAll("nav a").forEach(x => x.classList.toggle("active", x === a));
+    document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + a.dataset.page));
+    window.scrollTo({ top: 0 });
+  });
+
+  // панель
+  $("power").onchange = e => setVal("light", "", e.target.checked ? "on" : "off");
+  $("autoBr").onchange = e => setVal("switch", "auto_brightness", e.target.checked ? "on" : "off");
+  $("next").onclick = () => press("btn_next");
+  $("showTextQuick").onclick = () => press("btn_show_text");
+  $("shot").onclick = screenshot;
+  const br = $("brightness");
+  br.oninput = () => { $("brightnessVal").textContent = br.value + "%"; fillRange(br); };
+  br.onchange = () => setVal("number", "brightness_pct", br.value);
+  binders.push(s => {
+    $("power").checked = s.light;
+    $("autoBr").checked = !!s.switch.auto_brightness;
+    const n = s.number.brightness_pct;
+    if (n && document.activeElement !== br) { br.value = n.v; $("brightnessVal").textContent = n.v + "%"; fillRange(br); }
+  });
+
+  STATS.forEach(st => {
+    const c = el("div", "stat", `<small>${st.label}</small><b>–</b>` + (st.bar ? `<div class="bar"><i></i></div>` : "") + `<div class="foot"></div>`);
+    const b = c.querySelector("b"), bar = c.querySelector(".bar i"), foot = c.querySelector(".foot");
+    if (bar && st.color) bar.style.background = st.color;
+    binders.push(s => {
+      const v = st.get(s);
+      if (v == null || Number.isNaN(v)) { b.textContent = "–"; foot.textContent = ""; if (bar) bar.style.width = "0"; return; }
+      const [num, unit] = st.fmt(v);
+      b.innerHTML = `${num}<em>${unit}</em>`;
+      if (bar) bar.style.width = st.bar(v) + "%";
+      foot.textContent = st.foot ? st.foot(v, s) : "";
+    });
+    $("stats").appendChild(c);
+  });
+  binders.push(s => {
+    const ts = s.text_sensor;
+    $("info").innerHTML = [["ESPHome", (ts.ts_version || "").split(" ")[0]], ["IP", ts.ts_ip], ["Мережа", ts.ts_ssid],
+      ["Матриця", `${s.w}×${s.h}`], ["Час роботи", s.sensor.s_uptime != null ? fmtUptime(s.sensor.s_uptime) : "–"]]
+      .map(([k, v]) => `<span>${k}<b>${v || "–"}</b></span>`).join("");
+  });
+
+  // текст
+  PLACEHOLDERS.forEach(([code, name]) => {
+    const c = el("span", "chip", code); c.title = name;
+    c.onmousedown = e => e.preventDefault();
+    c.onclick = () => {
+      if (!lastLine) return toast("Спершу клацніть у рядок");
+      const i = lastLine.input, p = i.selectionStart ?? i.value.length;
+      i.value = (i.value.slice(0, p) + code + i.value.slice(i.selectionEnd ?? p)).slice(0, 64);
+      setVal("text", lastLine.id, i.value);
+    };
+    $("chips").appendChild(c);
+  });
+  $("showText").onclick = () => press("btn_show_text");
+
+  // сповіщення
+  const ta = $("notifyText");
+  ta.oninput = () => $("notifyCount").textContent = `${ta.value.length} / 120`;
+  $("notifySend").onclick = async () => {
+    const msg = ta.value.trim(); if (!msg) return toast("Введіть текст");
+    if (await post("/api/notify", null, msg)) toast("Надіслано");
+  };
+  $("notifyDismiss").onclick = () => press("btn_dismiss");
+
+  // іконка
+  $("iconFile").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    try { await uploadIcon(f); } catch (err) { console.error(err); toast("Не вдалося обробити файл"); }
+  };
+  $("iconClear").onclick = async () => {
+    if (!confirm("Видалити іконку?")) return;
+    if (await post("/api/icon_clear")) { toast("Іконку видалено"); setTimeout(loadIcon, 500); }
+  };
+
+  const on = [0, 3, 5, 6, 9, 10, 12, 15];
+  for (let i = 0; i < 16; i++) $("logo").appendChild(el("i", on.includes(i) ? "on" : ""));
+}
+
+/* ===================== стан ===================== */
+async function loadState() {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    state = await r.json();
+    binders.forEach(f => { try { f(state); } catch (e) { console.warn(e); } });
+    online(true);
+  } catch (e) { online(false); }
+}
+function online(ok) {
+  $("statusDot").classList.toggle("ok", ok);
+  $("statusText").textContent = ok ? (state && state.text_sensor.ts_ip || "онлайн") : "немає зв'язку";
+}
+
+/* ===================== пікселі ===================== */
+function drawPixels(ctx, cv, W, H, rgb, normalize) {
+  const cell = cv.width / W;
+  if (cv.height !== Math.round(cell * H)) cv.height = Math.round(cell * H);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height);
+  if (!rgb) return;
+  let k = 1;
+  if (normalize) {
+    let max = 0;
+    for (let i = 0; i < rgb.length; i++) if (rgb[i] > max) max = rgb[i];
+    k = max > 0 ? Math.min(255 / max, 8) : 1;
+  }
+  const gap = Math.max(1, Math.round(cell * 0.12));
+  // Живий кадр приходить у лінійних значеннях (після гамми 2.8) — повертаємо до вигляду на екрані
+  const ug = v => normalize ? 255 * Math.pow(Math.min(255, v * k) / 255, 1 / 2.8) : v;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const p = (y * W + x) * 3;
+    const R = ug(rgb[p]), G = ug(rgb[p + 1]), B = ug(rgb[p + 2]);
+    if (R + G + B < 12) continue;
+    ctx.fillStyle = `rgb(${R | 0},${G | 0},${B | 0})`;
+    ctx.fillRect(Math.round(x * cell) + gap / 2, Math.round(y * cell) + gap / 2, Math.round(cell) - gap, Math.round(cell) - gap);
+  }
+}
+
+const cv = $("live"), ctx = cv.getContext("2d");
+let frame = null;
+const draw = () => drawPixels(ctx, cv, state ? state.w : 32, state ? state.h : 16, frame, true);
+
+async function liveLoop() {
+  if (!document.hidden && $("page-dash").classList.contains("active")) {
+    try {
+      const r = await fetch("/api/live", { cache: "no-store" });
+      if (r.ok) {
+        const hex = await r.text();
+        const n = hex.length / 2, f = new Uint8Array(n);
+        for (let i = 0; i < n; i++) f[i] = parseInt(hex.substr(i * 2, 2), 16);
+        frame = f; draw();
+      }
+    } catch (e) { /* зв'язок зник — статус покаже loadState */ }
+  }
+  setTimeout(liveLoop, 200);
+}
+
+function screenshot() {
+  cv.toBlob(b => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = "wall-matrix-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png";
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+}
+
+/* ===================== іконка ===================== */
+const ICON = 16, MAX_FRAMES = 16, FRAME_BYTES = ICON * ICON * 3;
+let ipCv, ipCtx, iconTimer = null;
+
+function showIcon(frames) {
+  clearTimeout(iconTimer);
+  if (!frames.length) {
+    drawPixels(ipCtx, ipCv, ICON, ICON, null);
+    $("iconInfo").textContent = "Іконку не завантажено";
+    return;
+  }
+  $("iconInfo").textContent = frames.length > 1 ? `Анімація: ${frames.length} кадр(ів)` : "Статична картинка";
+  let i = 0;
+  const tick = () => {
+    drawPixels(ipCtx, ipCv, ICON, ICON, frames[i].rgb, false);
+    const d = frames[i].delay; i = (i + 1) % frames.length;
+    if (frames.length > 1) iconTimer = setTimeout(tick, Math.max(d, 20));
+  };
+  tick();
+}
+
+async function loadIcon() {
+  try {
+    const r = await fetch("/api/icon", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const b = new Uint8Array(await r.arrayBuffer());
+    const n = b[2], frames = [];
+    let p = 6;
+    for (let i = 0; i < n; i++) {
+      frames.push({ delay: b[p] | (b[p + 1] << 8), rgb: b.slice(p + 2, p + 2 + FRAME_BYTES) });
+      p += 2 + FRAME_BYTES;
+    }
+    showIcon(frames);
+  } catch (e) { showIcon([]); }
+}
+
+// Будь-яке зображення → 16×16 RGB (вписуємо з полями; прозоре → чорне)
+function toRGB(img, w, h) {
+  const c = document.createElement("canvas"); c.width = ICON; c.height = ICON;
+  const x = c.getContext("2d", { willReadFrequently: true });
+  x.imageSmoothingEnabled = !(w <= ICON && h <= ICON);  // піксель-арт не розмиваємо
+  x.imageSmoothingQuality = "high";
+  const s = Math.min(ICON / w, ICON / h);
+  const dw = Math.max(1, Math.round(w * s)), dh = Math.max(1, Math.round(h * s));
+  x.drawImage(img, Math.floor((ICON - dw) / 2), Math.floor((ICON - dh) / 2), dw, dh);
+  const d = x.getImageData(0, 0, ICON, ICON).data, out = new Uint8Array(FRAME_BYTES);
+  for (let i = 0, j = 0; i < d.length; i += 4, j += 3) {
+    const a = d[i + 3] / 255;
+    if (a < 0.5) continue;
+    out[j] = d[i] * a; out[j + 1] = d[i + 1] * a; out[j + 2] = d[i + 2] * a;
+  }
+  return out;
+}
+
+async function decodeFrames(file) {
+  if (file.type === "image/gif" && "ImageDecoder" in window) {
+    const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: file.type });
+    await dec.tracks.ready;
+    const total = dec.tracks.selectedTrack.frameCount, n = Math.min(total, MAX_FRAMES), frames = [];
+    for (let i = 0; i < n; i++) {
+      const { image } = await dec.decode({ frameIndex: i });
+      const delay = Math.min(10000, Math.max(20, Math.round((image.duration || 100000) / 1000)));
+      frames.push({ delay, rgb: toRGB(image, image.displayWidth, image.displayHeight) });
+      image.close();
+    }
+    if (total > MAX_FRAMES) toast(`Узято перші ${MAX_FRAMES} кадрів`);
+    return frames;
+  }
+  const bmp = await createImageBitmap(file);  // статична картинка або перший кадр GIF
+  return [{ delay: 1000, rgb: toRGB(bmp, bmp.width, bmp.height) }];
+}
+
+async function uploadIcon(file) {
+  const frames = await decodeFrames(file);
+  const buf = new Uint8Array(6 + frames.length * (2 + FRAME_BYTES));
+  buf.set([0x57, 0x4D, frames.length, ICON, ICON, 0]);
+  let p = 6;
+  for (const f of frames) {
+    buf[p] = f.delay & 0xFF; buf[p + 1] = f.delay >> 8;
+    buf.set(f.rgb, p + 2); p += 2 + FRAME_BYTES;
+  }
+  showIcon(frames);
+  if (await post("/api/icon", null, buf, "application/octet-stream")) {
+    toast(frames.length > 1 ? `Анімацію завантажено (${frames.length} кадр.)` : "Картинку завантажено");
+    setTimeout(loadIcon, 800);
+  }
+}
+
+/* ===================== старт ===================== */
+build();
+ipCv = $("iconPrev"); ipCtx = ipCv.getContext("2d");
+draw();
+loadState();
+loadIcon();
+setInterval(loadState, 2000);
+liveLoop();
+</script>
+</body>
+</html>

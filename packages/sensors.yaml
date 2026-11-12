@@ -1,0 +1,53 @@
+# Час, погода з Home Assistant, датчик освітленості (налаштування яскравості — в admin.yaml)
+
+globals:
+  - id: auto_level
+    type: float
+    initial_value: "1.0"
+
+# Обидва джерела ставлять спільний системний годинник: екран бере час через ha_time,
+# а SNTP підстраховує, коли Home Assistant недоступний.
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: ${timezone}
+  - platform: sntp
+    id: sntp_time
+    timezone: ${timezone}
+    servers:
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+      - time.google.com
+
+sensor:
+  - platform: homeassistant
+    id: weather_temp
+    entity_id: ${weather_entity}
+    attribute: temperature
+    internal: true
+
+  # Фоторезистор: 3.3V — LDR — GPIO — 10 кОм — GND (світліше → вища напруга)
+  - platform: adc
+    id: ldr_voltage
+    name: "Ambient light"
+    pin: ${ldr_pin}
+    attenuation: 12db
+    update_interval: 1s
+    entity_category: diagnostic
+    filters:
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 2
+    on_value:
+      then:
+        - lambda: |-
+            const float min_b = id(min_brightness_pct).state / 100.0f;
+            const float n = std::min(std::max(x / 3.0f, 0.0f), 1.0f);
+            id(auto_level) = min_b + (1.0f - min_b) * n;
+
+text_sensor:
+  - platform: homeassistant
+    id: weather_state
+    entity_id: ${weather_entity}
+    internal: true
+

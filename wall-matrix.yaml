@@ -1,0 +1,43 @@
+# =============================================================================
+#  Wall Matrix — настінна панель 32×16 (8 панелей WS2812B 8×8, сітка 4×2)
+#  Плата: YD-ESP32-23 (ESP32-S3 N16R8)
+# =============================================================================
+
+substitutions:
+  name: wall-matrix
+  friendly_name: Wall Matrix
+
+  # --- Піни ---
+  # Матриця підключена ПІСЛЯ вбудованого WS2812 (GPIO48): його DOUT → DIN
+  # першої панелі. Вбудований світлодіод живиться від ~4.7 В і сам піднімає
+  # рівень сигналу, тому перетворювач рівнів не потрібен.
+  # Стрічка ділиться partition'ами: «Status LED» — піксель 0 (індикатор Wi-Fi),
+  # «Matrix» — пікселі 1..512 (на неї малює display).
+  matrix_pin: GPIO48
+  ldr_pin: GPIO4           # фоторезистор (дільник з 10 кОм), ADC1
+
+  # --- Матриця ---
+  # true — якщо всередині панелі світлодіоди йдуть змійкою (парні рядки
+  # зліва направо, непарні справа наліво). Перевірте тестовим екраном.
+  panel_serpentine: "false"
+  # Обмеження максимального струму: 0.4 ≈ 12 А на повному білому при 100% яскравості.
+  # Фактична корекція = max_power × яскравість (див. lambda дисплея).
+  max_power: "0.4"
+
+  # --- Час ---
+  timezone: Europe/Kyiv     # IANA-зона; взята з Windows (FLE Standard Time)
+
+  # --- Home Assistant ---
+  weather_entity: weather.forecast_home
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  includes:
+    - includes/matrix_gfx.h
+
+packages:
+  core: !include packages/core.yaml
+  display: !include packages/display.yaml
+  sensors: !include packages/sensors.yaml
+  admin: !include packages/admin.yaml

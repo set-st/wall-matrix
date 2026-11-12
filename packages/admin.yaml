@@ -1,0 +1,469 @@
+# Налаштування панелі та веб-панель: http://wall-matrix.local/ (логін/пароль — web_* у secrets.yaml)
+# Усі налаштування — template-сутності: зберігаються у флеші й видні в Home Assistant.
+# Імена сутностей англійською навмисно: від імені залежать ID у Home Assistant
+# і ключі збереження у флеші (кирилиця перетворилася б на «____»).
+# Сторінка — web/index.html, сервер — components/matrix_web.
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [matrix_web]
+
+# Власна веб-панель (web/index.html вшивається в прошивку під час збирання).
+matrix_web:
+  id: web_panel
+  html: web/index.html
+  username: !secret web_username
+  password: !secret web_password
+  light: matrix_light
+  width: 32
+  height: 16
+  serpentine: ${panel_serpentine}
+  notify_text: notify_input
+  notify_button: btn_send
+  switches: [auto_brightness, test_pattern, app_clock, app_date, app_weather, app_text,
+             text_icon, clock_24h, clock_blink, clock_seconds_bar]
+  numbers: [brightness_pct, min_brightness_pct, clock_secs, date_secs, weather_secs,
+            text_secs, notify_duration, scroll_speed]
+  texts: [color_clock, color_date, color_accent, color_notify, notify_input,
+          text_line1, text_line2, color_line1, color_line2]
+  selects: [week_start]
+  buttons: [btn_next, btn_show_text, btn_send, btn_dismiss, btn_restart, btn_safe_mode]
+  sensors: [s_uptime, s_wifi, ldr_voltage, weather_temp]
+  text_sensors: [ts_ip, ts_ssid, ts_version]
+
+# ---------------------------------------------------------------------------
+# Скрипти, спільні для веб-панелі, кнопок і Home Assistant
+# ---------------------------------------------------------------------------
+script:
+  - id: notify_show
+    mode: restart
+    parameters:
+      message: string
+      duration: int
+      color: string
+    then:
+      - lambda: |-
+          if (message.empty()) return;
+          id(notify_text) = message;
+          const int d = duration > 0 ? duration : (int) id(notify_duration).state;
+          id(notify_until) = millis() + (uint32_t) d * 1000UL;
+          id(notify_color) = matrix_gfx::parse_hex(color, matrix_gfx::parse_hex(id(color_notify).state, 0xFF8000));
+          id(scroll_pos) = 32;
+          id(notify_active) = true;
+
+  # Екрани: 0 — годинник, 1 — дата, 2 — погода, 3 — текст
+  - id: next_screen
+    then:
+      - lambda: |-
+          const bool en[4] = {
+              id(app_clock).state,
+              id(app_date).state,
+              id(app_weather).state && !std::isnan(id(weather_temp).state),
+              id(app_text).state && (!id(text_line1).state.empty() || !id(text_line2).state.empty())};
+          id(screen_ticks) = 0;
+          id(line1_pos) = 0;
+          id(line2_pos) = 0;
+          for (int i = 1; i <= 4; i++) {
+            const int n = (id(screen_idx) + i) % 4;
+            if (en[n]) { id(screen_idx) = n; return; }
+          }
+          id(screen_idx) = 0;  // усе вимкнено — показуємо годинник
+
+# ---------------------------------------------------------------------------
+# Екран
+# ---------------------------------------------------------------------------
+number:
+  - platform: template
+    id: brightness_pct
+    name: "Brightness"
+    icon: mdi:brightness-6
+    min_value: 5
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 50
+    entity_category: config
+
+  - platform: template
+    id: min_brightness_pct
+    name: "Auto brightness minimum"
+    icon: mdi:brightness-4
+    min_value: 5
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 25
+    entity_category: config
+
+# ---------------------------------------------------------------------------
+# Застосунки: час показу
+# ---------------------------------------------------------------------------
+  - platform: template
+    id: clock_secs
+    name: "Clock duration"
+    icon: mdi:timer-outline
+    min_value: 3
+    max_value: 120
+    step: 1
+    unit_of_measurement: s
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 15
+    entity_category: config
+
+  - platform: template
+    id: date_secs
+    name: "Date duration"
+    icon: mdi:timer-outline
+    min_value: 3
+    max_value: 120
+    step: 1
+    unit_of_measurement: s
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 5
+    entity_category: config
+
+  - platform: template
+    id: weather_secs
+    name: "Weather duration"
+    icon: mdi:timer-outline
+    min_value: 3
+    max_value: 120
+    step: 1
+    unit_of_measurement: s
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 5
+    entity_category: config
+
+  - platform: template
+    id: text_secs
+    name: "Text duration"
+    icon: mdi:timer-outline
+    min_value: 3
+    max_value: 120
+    step: 1
+    unit_of_measurement: s
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 10
+    entity_category: config
+
+# ---------------------------------------------------------------------------
+# Сповіщення: параметри
+# ---------------------------------------------------------------------------
+  - platform: template
+    id: notify_duration
+    name: "Notification duration"
+    icon: mdi:timer-sand
+    min_value: 2
+    max_value: 300
+    step: 1
+    unit_of_measurement: s
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 10
+    entity_category: config
+
+  - platform: template
+    id: scroll_speed
+    name: "Scroll speed"
+    icon: mdi:speedometer
+    min_value: 5
+    max_value: 60
+    step: 1
+    unit_of_measurement: "px/s"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 20
+    entity_category: config
+
+switch:
+  - platform: template
+    id: auto_brightness
+    name: "Auto brightness"
+    icon: mdi:brightness-auto
+    # Типово вимкнено: без фоторезистора вхід «висить у повітрі»
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+
+  - platform: template
+    id: test_pattern
+    name: "Test pattern"
+    icon: mdi:grid
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    entity_category: config
+
+  # --- Застосунки: увімк/вимк ---
+  - platform: template
+    id: app_clock
+    name: "Clock app"
+    icon: mdi:clock-digital
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  - platform: template
+    id: app_date
+    name: "Date app"
+    icon: mdi:calendar
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  - platform: template
+    id: app_weather
+    name: "Weather app"
+    icon: mdi:weather-partly-cloudy
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  - platform: template
+    id: app_text
+    name: "Text app"
+    icon: mdi:text
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  - platform: template
+    id: text_icon
+    name: "Text app icon"
+    icon: mdi:image
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  # --- Зовнішній вигляд ---
+  - platform: template
+    id: clock_24h
+    name: "24-hour clock"
+    icon: mdi:hours-24
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  - platform: template
+    id: clock_blink
+    name: "Blinking colon"
+    icon: mdi:dots-vertical
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  - platform: template
+    id: clock_seconds_bar
+    name: "Seconds bar"
+    icon: mdi:progress-clock
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+select:
+  - platform: template
+    id: week_start
+    name: "Week starts on"
+    icon: mdi:calendar-week-begin
+    options:
+      - "Monday"
+      - "Sunday"
+    initial_option: "Monday"
+    optimistic: true
+    restore_value: true
+    entity_category: config
+
+text:
+  # Кольори — у форматі #RRGGBB
+  - platform: template
+    id: color_clock
+    name: "Clock color"
+    icon: mdi:palette
+    mode: text
+    max_length: 7
+    optimistic: true
+    restore_value: true
+    initial_value: "#FFFFFF"
+    entity_category: config
+
+  - platform: template
+    id: color_date
+    name: "Date color"
+    icon: mdi:palette
+    mode: text
+    max_length: 7
+    optimistic: true
+    restore_value: true
+    initial_value: "#FFFFFF"
+    entity_category: config
+
+  - platform: template
+    id: color_accent
+    name: "Accent color"
+    icon: mdi:palette
+    mode: text
+    max_length: 7
+    optimistic: true
+    restore_value: true
+    initial_value: "#00A0FF"
+    entity_category: config
+
+  - platform: template
+    id: color_notify
+    name: "Notification frame color"
+    icon: mdi:palette
+    mode: text
+    max_length: 7
+    optimistic: true
+    restore_value: true
+    initial_value: "#FF8000"
+    entity_category: config
+
+  # Текст сповіщення для надсилання з веб-панелі
+  - platform: template
+    id: notify_input
+    name: "Notification text"
+    icon: mdi:message-text
+    mode: text
+    max_length: 255
+    optimistic: true
+    restore_value: false
+    initial_value: "Привіт!"
+    entity_category: config
+
+  # --- Текстовий застосунок: два рядки ---
+  # Підстановки: {time} {date} {day} {temp}
+  - platform: template
+    id: text_line1
+    name: "Text line 1"
+    icon: mdi:format-text
+    mode: text
+    max_length: 64
+    optimistic: true
+    restore_value: true
+    initial_value: "{day} {date}"
+    entity_category: config
+
+  - platform: template
+    id: text_line2
+    name: "Text line 2"
+    icon: mdi:format-text
+    mode: text
+    max_length: 64
+    optimistic: true
+    restore_value: true
+    initial_value: "Надворі {temp}"
+    entity_category: config
+
+  - platform: template
+    id: color_line1
+    name: "Text line 1 color"
+    icon: mdi:palette
+    mode: text
+    max_length: 7
+    optimistic: true
+    restore_value: true
+    initial_value: "#FFD200"
+    entity_category: config
+
+  - platform: template
+    id: color_line2
+    name: "Text line 2 color"
+    icon: mdi:palette
+    mode: text
+    max_length: 7
+    optimistic: true
+    restore_value: true
+    initial_value: "#FFFFFF"
+    entity_category: config
+
+button:
+  - platform: template
+    id: btn_next
+    name: "Next screen"
+    icon: mdi:skip-next
+    on_press:
+      - script.execute: next_screen
+
+  - platform: template
+    id: btn_show_text
+    name: "Show text now"
+    icon: mdi:text-box
+    on_press:
+      - lambda: |-
+          id(screen_idx) = 3;
+          id(screen_ticks) = 0;
+          id(line1_pos) = 0;
+          id(line2_pos) = 0;
+          id(notify_active) = false;
+
+  - platform: template
+    id: btn_send
+    name: "Send notification"
+    icon: mdi:send
+    on_press:
+      - script.execute:
+          id: notify_show
+          message: !lambda 'return id(notify_input).state;'
+          duration: 0
+          color: ""
+
+  - platform: template
+    id: btn_dismiss
+    name: "Dismiss notification"
+    icon: mdi:close
+    on_press:
+      - lambda: 'id(notify_active) = false;'
+
+  - platform: restart
+    id: btn_restart
+    name: "Restart"
+
+  - platform: safe_mode
+    id: btn_safe_mode
+    name: "Safe mode"
+
+# ---------------------------------------------------------------------------
+# Система
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: uptime
+    id: s_uptime
+    update_interval: 10s
+    name: "Uptime"
+
+  - platform: wifi_signal
+    id: s_wifi
+    name: "Wi-Fi signal"
+    update_interval: 30s
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      id: ts_ip
+      name: "IP address"
+    ssid:
+      id: ts_ssid
+      name: "Wi-Fi network"
+
+  - platform: version
+    id: ts_version
+    name: "ESPHome version"
+    hide_timestamp: true
