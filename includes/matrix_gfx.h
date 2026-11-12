@@ -265,12 +265,12 @@ static constexpr int SCROLL_GAP = 8;
 // після паузи біжить по колу (видно одразу, без «в'їзду» з краю).
 // pos > 0 — ще триває пауза; pos ≤ 0 — зсув тексту.
 inline void draw_line(Display &it, BaseFont *font, const std::string &text, int x0, int y, int w, Color c,
-                      float &pos, float step) {
+                      float &pos, float step, int h = 8) {
   if (text.empty())
     return;
   int x1, y1, tw, th;
   it.get_text_bounds(0, 0, text.c_str(), font, TextAlign::TOP_LEFT, &x1, &y1, &tw, &th);
-  it.start_clipping(x0, y, x0 + w, y + 8);
+  it.start_clipping(x0, y, x0 + w, y + h);
   if (tw <= w) {
     it.print(x0 + (w - tw) / 2, y, font, c, TextAlign::TOP_LEFT, text.c_str());
   } else {
@@ -294,6 +294,41 @@ inline void draw_rgb(Display &it, int x, int y, int w, int h, const uint8_t *rgb
       if (p[0] | p[1] | p[2])
         it.draw_pixel_at(x + xx, y + yy, dim(Color(p[0], p[1], p[2]), k));
     }
+}
+
+// Інформер. Два рядки дрібним шрифтом або один — високим (на всю висоту).
+// Іконка рядка 1: 16×16 займає обидва рядки (текст праворуч), 8×8 — лише свій рядок;
+// іконка рядка 2 — лише 8×8. В режимі одного рядка — іконка рядка 1 по центру зліва.
+inline void draw_informer(Display &it, BaseFont *small, BaseFont *tall, bool single, const std::string &t1,
+                          const std::string &t2, Color c1, Color c2, const uint8_t *ic1, int ic1w, int ic1h,
+                          const uint8_t *ic2, int ic2w, int ic2h, float step, float &p0, float &p1) {
+  if (single) {
+    int x0 = 0;
+    if (ic1 != nullptr) {
+      draw_rgb(it, 0, (16 - ic1h) / 2, ic1w, ic1h, ic1, 1.0f);
+      x0 = ic1w + 1;
+    }
+    draw_line(it, tall, t1, x0, 0, 32 - x0, c1, p0, step, 16);
+    return;
+  }
+  if (ic1 != nullptr && ic1h >= 16) {
+    draw_rgb(it, 0, 0, ic1w, ic1h, ic1, 1.0f);
+    draw_line(it, small, t1, ic1w + 1, 0, 31 - ic1w, c1, p0, step);
+    draw_line(it, small, t2, ic1w + 1, 8, 31 - ic1w, c2, p1, step);
+    return;
+  }
+  int x = 0;
+  if (ic1 != nullptr) {
+    draw_rgb(it, 0, 0, ic1w, ic1h, ic1, 1.0f);
+    x = ic1w + 1;
+  }
+  draw_line(it, small, t1, x, 0, 32 - x, c1, p0, step);
+  x = 0;
+  if (ic2 != nullptr && ic2h <= 8) {
+    draw_rgb(it, 0, 8, ic2w, ic2h, ic2, 1.0f);
+    x = ic2w + 1;
+  }
+  draw_line(it, small, t2, x, 8, 32 - x, c2, p1, step);
 }
 
 // Застосунок / сповіщення з іконкою: іконка зліва (по центру по вертикалі), праворуч текст.

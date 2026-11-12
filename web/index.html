@@ -199,6 +199,23 @@
   .ha-form input { width: 100%; font-family: var(--mono); }
   @media (max-width: 600px) { .ha-form { grid-template-columns: 1fr; } }
 
+  /* інформери */
+  .inf { border: 1px solid var(--border); border-radius: 10px; background: var(--card2); margin: 12px 0; }
+  .inf-h { display: flex; align-items: center; gap: 8px; padding: 9px 10px; }
+  .inf-h .t { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .inf-h .t small { color: var(--dim); font: 11.5px var(--mono); margin-left: 8px; font-weight: 400; }
+  .inf-b { border-top: 1px solid var(--brd2); padding: 4px 12px 12px; }
+  .inf-line { border: 1px solid var(--brd2); border-radius: 9px; padding: 8px 10px 10px; margin-top: 10px; background: var(--card); }
+  .inf-line > b { display: block; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
+  .grid2 { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+  .grid3 { display: grid; grid-template-columns: 2fr auto 1fr; gap: 8px; align-items: center; margin-top: 8px; }
+  .grid2 input, .grid3 input[type=text], .grid3 select { width: 100%; }
+  .inf .ent { flex: 1 1 auto; min-width: 0; }
+  .inf-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+  .inf-actions .grow { flex: 1; }
+  .dirty { color: var(--warn); font-size: 12px; }
+  @media (max-width: 600px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
   /* Wi-Fi */
   .wifi-nets { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 0; max-height: 260px; overflow-y: auto; }
   .wifi-net { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; background: var(--con);
@@ -318,6 +335,14 @@
     підніме точку доступу «Wall Matrix Fallback» (пароль 12345678) — під'єднайтеся до неї, і ця сторінка
     відкриється сама (або перейдіть на http://192.168.4.1).</div>
 </template>
+<template id="tpl-inf">
+  <div class="actions"><button class="primary" id="infAdd">＋ Додати інформер</button>
+    <span class="muted">Два рядки з даними сутностей Home Assistant або один високий рядок.</span></div>
+  <div id="infList"></div>
+  <div class="muted" style="padding-bottom:14px">У шаблоні рядка: <code>{v}</code> — значення сутності,
+    <code>{v0}</code> <code>{v1}</code> <code>{v2}</code> — округлене число, а також <code>{time}</code>
+    <code>{date}</code> <code>{day}</code> <code>{temp}</code>. Іконка 16×16 у рядку 1 займає обидва рядки.</div>
+</template>
 <template id="tpl-apps">
   <div id="appList"></div>
   <div class="actions"><span class="muted">Pushed-застосунки створюються через API:
@@ -371,6 +396,7 @@ const PAGES = {
     { h: "Текст", sub: "Два рядки дрібним шрифтом та іконка.", items: [
       { t: "switch", id: "app_text", label: "Показувати", hint: "Налаштування — у вкладці «Текст»." },
       { t: "number", id: "text_secs", label: "Тривалість", unit: "с", kind: "box" } ] },
+    { h: "Мої інформери", sub: "Власні застосунки: дані з Home Assistant у два рядки чи в один високий.", tpl: "tpl-inf" },
   ],
   text: [
     { h: "Два рядки", sub: "Підстановки: натисніть, щоб вставити у вибраний рядок.", items: [
@@ -880,8 +906,9 @@ async function loadApps() {
   const host = $("appList"); if (!host) return;
   host.replaceChildren(...apps.map((a, i) => {
     const r = el("div", "app-row" + (a.active ? " active" : "") + (a.present ? "" : " gone"));
-    const nm = el("div", "nm", `<b>${APP_NAMES[a.name] || a.name}</b>`);
-    const sub = a.origin === "pushed" ? [a.text, a.icon && "іконка " + a.icon, a.lifetimeMs ? `живе ${Math.round(a.lifetimeMs / 1000)} с` : ""]
+    const nm = el("div", "nm", "<b></b>");
+    nm.firstChild.textContent = APP_NAMES[a.name] || a.title || a.name;
+    const sub = a.origin === "informer" ? (a.active ? "показується зараз" : `${Math.round(a.durationMs / 1000)} с`) : a.origin === "pushed" ? [a.text, a.icon && "іконка " + a.icon, a.lifetimeMs ? `живе ${Math.round(a.lifetimeMs / 1000)} с` : ""]
       .filter(Boolean).join(" · ") : (a.active ? "показується зараз" : `${Math.round(a.durationMs / 1000)} с`);
     nm.appendChild(el("span", null, sub || ""));
     const up = el("button", "mini", "↑"), down = el("button", "mini", "↓");
@@ -893,7 +920,7 @@ async function loadApps() {
     show.disabled = !a.present;
     show.onclick = () => apiTry("PUT", "apps/active", { name: a.name }).then(() => setTimeout(loadApps, 300));
     const parts = [el("span", "pos", String(i + 1)), up, down, nm,
-      el("span", "badge" + (a.origin === "pushed" ? " pushed" : ""), a.origin === "pushed" ? "pushed" : "вбудований"), w, show];
+      el("span", "badge" + (a.origin === "builtin" ? "" : " pushed"), { pushed: "pushed", informer: "інформер" }[a.origin] || "вбудований"), w, show];
     if (a.origin === "pushed") {
       const del = el("button", "mini danger", "✕"); del.title = "Видалити";
       del.onclick = async () => { if (confirm(`Видалити застосунок «${a.name}»?`) && await apiTry("DELETE", "apps/" + encodeURIComponent(a.name))) setTimeout(loadApps, 300); };
@@ -903,6 +930,7 @@ async function loadApps() {
     return r;
   }));
 }
+function moveAppByName(name, d) { const i = apps.findIndex(a => a.name === name); if (i >= 0) moveApp(i, d); }
 function moveApp(i, d) {
   const j = i + d; if (j < 0 || j >= apps.length) return;
   [apps[i], apps[j]] = [apps[j], apps[i]];
@@ -911,6 +939,104 @@ function moveApp(i, d) {
 async function saveOrder() {
   await apiTry("PUT", "apps/order", { order: apps.map(a => a.name), disabled: apps.filter(a => !a.enabled).map(a => a.name) });
   setTimeout(loadApps, 300);
+}
+
+/* ===================== інформери ===================== */
+let informers = [];
+const infOpen = new Set();      // розгорнуті картки
+const infDraft = new Map();     // незбережені зміни: id → копія
+
+async function loadInformers() {
+  try { informers = await api("GET", "informers"); } catch (e) { return; }
+  renderInformers();
+}
+
+function iconOptions(sel, value, maxSize) {
+  sel.replaceChildren(Object.assign(el("option", null, "без іконки"), { value: "" }),
+    ...icons.filter(i => i.height <= maxSize).map(i => Object.assign(el("option", null, `${i.name} · ${i.width}×${i.height}`), { value: i.name })));
+  if (value && ![...sel.options].some(o => o.value === value))
+    sel.appendChild(Object.assign(el("option", null, value + " (немає)"), { value }));
+  sel.value = value || "";
+}
+
+function renderInformers() {
+  const host = $("infList"); if (!host) return;
+  host.replaceChildren(...(informers.length ? informers.map(infCard) :
+    [el("div", "muted", "Ще немає інформерів. Натисніть «Додати».")]));
+}
+
+function infCard(src) {
+  const d = infDraft.get(src.id) || JSON.parse(JSON.stringify(src));
+  const card = el("div", "inf"), head = el("div", "inf-h"), body = el("div", "inf-b");
+  const t = el("div", "t"); t.textContent = d.title; t.appendChild(el("small", null, src.id + (d.single ? " · один рядок" : "")));
+  const dirtyMark = el("span", "dirty", infDraft.has(src.id) ? "● не збережено" : "");
+  const btn = (txt, cls, fn, title) => { const b = el("button", cls, txt); b.type = "button"; if (title) b.title = title; b.onclick = fn; return b; };
+  const touch = () => { infDraft.set(src.id, d); dirtyMark.textContent = "● не збережено"; t.firstChild.textContent = d.title || src.id; };
+  head.append(t, dirtyMark,
+    btn("↑", "mini", () => moveAppByName(src.id, -1), "Вище в черзі"),
+    btn("↓", "mini", () => moveAppByName(src.id, 1), "Нижче в черзі"),
+    btn("Показати", "", () => apiTry("PUT", "apps/active", { name: src.id })),
+    btn(infOpen.has(src.id) ? "Згорнути" : "Змінити", "", () => { infOpen.has(src.id) ? infOpen.delete(src.id) : infOpen.add(src.id); renderInformers(); }),
+    btn("✕", "mini danger", async () => {
+      if (!confirm(`Видалити інформер «${d.title}»?`)) return;
+      if (await apiTry("DELETE", "informers/" + src.id)) { infDraft.delete(src.id); setTimeout(() => { loadInformers(); loadApps(); }, 400); }
+    }, "Видалити"));
+  card.append(head);
+  if (!infOpen.has(src.id)) return card;
+
+  // --- загальне ---
+  const title = el("input"); title.type = "text"; title.maxLength = 32; title.value = d.title;
+  title.oninput = () => { d.title = title.value; touch(); };
+  const r1 = el("div", "row"); r1.append(el("div", "lbl", "<b>Назва</b><span>Лише для веб-панелі.</span>"), title);
+  const sw = el("label", "sw"), cb = el("input"); cb.type = "checkbox"; cb.checked = d.single; sw.append(cb, el("span"));
+  const r2 = el("div", "row"); r2.append(el("div", "lbl", "<b>В один рядок</b><span>Високий шрифт на всю висоту; рядок 2 не показується.</span>"), sw);
+  const dur = el("input"); dur.type = "number"; dur.min = 0; dur.max = 600; dur.value = d.durationMs ? Math.round(d.durationMs / 1000) : "";
+  dur.placeholder = "як текст"; dur.oninput = () => { d.durationMs = (+dur.value || 0) * 1000; touch(); };
+  const r3 = el("div", "row"); r3.append(el("div", "lbl", "<b>Тривалість</b><span>Порожньо — як у застосунку «Текст».</span>"), dur, el("span", "unit", "с"));
+  body.append(r1, r2, r3);
+
+  // --- рядки ---
+  const lineBoxes = [0, 1].map(i => {
+    const L = d.lines[i];
+    const box = el("div", "inf-line"); box.appendChild(el("b", null, i ? "Рядок 2" : "Рядок 1"));
+    const ent = entityField(null, v => { L.entity = v; touch(); }); ent.input.value = L.entity; ent.input.placeholder = "сутність (необов'язково)";
+    ent.input.addEventListener("input", () => { L.entity = ent.input.value.trim(); touch(); });
+    const attr = el("input"); attr.type = "text"; attr.maxLength = 32; attr.placeholder = "атрибут (необов'язково)"; attr.value = L.attr;
+    attr.oninput = () => { L.attr = attr.value.trim(); touch(); };
+    const g1 = el("div", "grid2"); g1.append(ent.element, attr);
+    const fmt = el("input"); fmt.type = "text"; fmt.maxLength = 64; fmt.placeholder = L.entity ? "{v}" : "текст"; fmt.value = L.fmt;
+    fmt.oninput = () => { L.fmt = fmt.value; touch(); };
+    const col = el("input"); col.type = "color"; col.value = (L.color || "#FFFFFF").toLowerCase();
+    col.style.cssText = "width:38px;height:32px;padding:0;border:1px solid var(--border);border-radius:7px;background:none";
+    col.oninput = () => { L.color = col.value.toUpperCase(); touch(); };
+    const ic = el("select"); iconOptions(ic, L.icon, i ? 8 : 16);
+    ic.onchange = () => { L.icon = ic.value; touch(); };
+    const g2 = el("div", "grid3"); g2.append(fmt, col, ic);
+    box.append(g1, g2);
+    return box;
+  });
+  body.append(...lineBoxes);
+  const sync = () => { lineBoxes[1].style.display = d.single ? "none" : ""; };
+  cb.onchange = () => { d.single = cb.checked; touch(); sync(); };
+  sync();
+
+  const save = btn("Зберегти", "primary", async () => {
+    if (await apiTry("PUT", "informers/" + src.id, d)) {
+      infDraft.delete(src.id); toast("Збережено");
+      setTimeout(() => { loadInformers(); loadApps(); }, 400);
+    }
+  });
+  const revert = btn("Скасувати", "", () => { infDraft.delete(src.id); renderInformers(); });
+  const acts = el("div", "inf-actions"); acts.append(save, revert, el("span", "grow"),
+    btn("Показати", "", async () => { if (infDraft.has(src.id)) await save.onclick(); apiTry("PUT", "apps/active", { name: src.id }); }));
+  body.append(acts);
+  card.append(body);
+  return card;
+}
+
+async function addInformer() {
+  const r = await apiTry("POST", "informers", {});
+  if (r && r.id) { infOpen.add(r.id); setTimeout(() => { loadInformers(); loadApps(); }, 400); }
 }
 
 /* ===================== бібліотека іконок ===================== */
@@ -992,6 +1118,7 @@ async function loadIcons() {
     return t;
   }) : [el("div", "muted", "Поки порожньо. Додайте першу іконку вище.")]));
   fillIconSelects();
+  renderInformers();
 }
 
 // Будь-яке зображення → size×size RGB (вписуємо з полями; прозоре → чорне)
@@ -1046,6 +1173,8 @@ draw();
 loadState();
 loadIcons();
 loadApps();
+loadInformers();
+$("infAdd").onclick = addInformer;
 setInterval(loadState, 2000);
 setInterval(() => { if ($("page-apps").classList.contains("active")) loadApps(); }, 3000);
 liveLoop();

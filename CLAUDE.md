@@ -57,6 +57,11 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
   Нові вбудовані застосунки з даними HA робити так само (text-сутність + watch_ha).
 - Пошук сутностей у веб-панелі: браузер → WebSocket HA (`get_states`) з токеном у localStorage
   (`wall-matrix-ha`), на панель токен не йде. Поле `t: "entity"` у PAGES, `domains` — фільтр.
+- **Інформери** (informers.cpp): застосунки користувача, `AppKind::INFORMER`, id `inf_N`, у черзі
+  origin "informer". JSON у NVS (`InformerStore` 4 КБ, до 12 шт). Значення сутностей — кеш
+  `ha_value()` (підписка `watch_ha(e, attr, nullptr)`: без обробника НЕ замінює чужий, напр. погоди).
+  Малювання — `matrix_gfx::draw_informer`; високий шрифт `f_tall` = Handjet 14 (16/18 мають дефекти).
+  POST /informers з тілом без `lines` → шаблон («Текст»).
 - **Wi-Fi у веб-панелі** (`/api/v1/wifi`): стан, мережі (`request_wifi_scan_results` + `ScanResultsLock`,
   у codegen), збереження — `save_wifi_sta` через 500 мс. Сканування НЕ запускати при підключенні
   (`start_scanning` ламає стан STA). У режимі точки доступу `captive_portal` лишається заради DNS,

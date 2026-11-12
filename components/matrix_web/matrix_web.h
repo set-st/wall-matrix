@@ -52,7 +52,7 @@ struct Icon {
 // ---------------------------------------------------------------------------
 // Застосунки та сповіщення (модель як в AWTRIX NG)
 // ---------------------------------------------------------------------------
-enum class AppKind : uint8_t { CLOCK, DATE, WEATHER, TEXT, PUSHED };
+enum class AppKind : uint8_t { CLOCK, DATE, WEATHER, TEXT, PUSHED, INFORMER };
 
 // Застосунок, надісланий через API (origin "pushed")
 struct PushedApp {
@@ -78,9 +78,30 @@ struct Notification {
   uint32_t started_ms{0};    // 0 — ще не показувалося
 };
 
+// Інформер — застосунок користувача з веб-панелі: два рядки (або один високий) з даними
+// сутностей Home Assistant. Зберігається у флеші.
+static constexpr int INFORMER_MAX = 12;
+
+struct InformerLine {
+  std::string entity;        // сутність HA (порожньо — лише текст)
+  std::string attr;          // атрибут ("" — стан)
+  std::string fmt;           // шаблон: {v} {v0} {v1} {v2} + {time} {date} {day} {temp}
+  std::string icon;          // ім'я з бібліотеки (рядок 1: 16×16 займає обидва рядки)
+  uint32_t color{0xFFFFFF};
+};
+
+struct Informer {
+  std::string id;            // ім'я в черзі застосунків (inf_N)
+  std::string title;         // назва для веб-панелі
+  bool single{false};        // один рядок високим шрифтом
+  uint32_t duration_ms{0};   // 0 — як у текстового застосунку
+  InformerLine line[2];
+};
+
 struct AppView {
   AppKind kind{AppKind::CLOCK};
   const PushedApp *app{nullptr};
+  const Informer *informer{nullptr};
 };
 
 template<typename T> struct Entry {
@@ -144,6 +165,10 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   // з іншою сутністю: старий обробник замінюється (див. ha.cpp).
   using HaCallback = std::function<void(const std::string &)>;
   void watch_ha(const std::string &entity, const std::string &attribute, HaCallback cb);
+  const std::string *ha_value(const std::string &entity, const std::string &attribute) const;
+
+  // Текст рядка інформера з підставленим значенням сутності
+  std::string informer_text(const Informer &inf, int line) const;
 
  protected:
   // --- REST ---
@@ -180,6 +205,15 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   void start_app_(int index);
   void load_order_();
   void save_order_();
+
+  // --- Інформери ---
+  Informer *find_informer_(const std::string &id);
+  void load_informers_();
+  void save_informers_();
+  void upsert_informer_(Informer inf);
+  void remove_informer_(const std::string &id);
+  void watch_informer_(const Informer &inf);
+  std::string informers_json_();
 
   // --- Іконки ---
   void load_icons_();
@@ -221,6 +255,9 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   std::vector<std::string> order_;          // порядок (вбудовані + pushed, зокрема відсутні)
   std::vector<std::string> disabled_;       // вимкнені pushed-застосунки
   std::vector<PushedApp> pushed_;
+  std::vector<Informer> informers_;
+  int informer_seq_{1};
+  ESPPreferenceObject informer_pref_;
   std::deque<Notification> notes_;
   std::vector<std::shared_ptr<Icon>> icons_;
   int current_{0};

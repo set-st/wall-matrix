@@ -55,6 +55,11 @@ font:
     id: f_small
     size: 8
     glyphs: *glyphs
+  # Високий вузький шрифт (великі літери 10 px, ~6 символів на 32 px) — інформери «в один рядок»
+  - file: "gfonts://Handjet"
+    id: f_tall
+    size: 14
+    glyphs: *glyphs
 
 image:
   # Іконки погоди 16×16 з Material Design Icons (завантажуються під час збирання)
@@ -171,6 +176,19 @@ display:
                                 dim(hex_color(id(color_line1).state, 0xFFD200), 1.0f), web->scroll(0), step);
           matrix_gfx::draw_line(it, id(f_small), prep(id(text_line2).state), x0, 8, w,
                                 dim(hex_color(id(color_line2).state, 0xFFFFFF), 1.0f), web->scroll(1), step);
+          break;
+        }
+
+        case matrix_web::AppKind::INFORMER: {
+          const auto *inf = app.informer;
+          const auto *i1 = web->icon(inf->line[0].icon);
+          const auto *i2 = web->icon(inf->line[1].icon);
+          matrix_gfx::draw_informer(it, id(f_small), id(f_tall), inf->single,
+              prep(web->informer_text(*inf, 0)), prep(web->informer_text(*inf, 1)),
+              dim(Color(inf->line[0].color), 1.0f), dim(Color(inf->line[1].color), 1.0f),
+              i1 ? i1->frame_at(millis()) : nullptr, i1 ? i1->w : 0, i1 ? i1->h : 0,
+              i2 ? i2->frame_at(millis()) : nullptr, i2 ? i2->w : 0, i2 ? i2->h : 0,
+              step, web->scroll(0), web->scroll(1));
           break;
         }
 

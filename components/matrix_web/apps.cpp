@@ -68,6 +68,9 @@ PushedApp *MatrixWeb::find_pushed_(const std::string &name) {
 bool MatrixWeb::app_present_(const std::string &name) const {
   if (this->is_builtin_(name))
     return true;
+  for (const auto &i : this->informers_)
+    if (i.id == name)
+      return true;
   for (const auto &a : this->pushed_)
     if (a.name == name)
       return true;
@@ -102,6 +105,9 @@ bool MatrixWeb::app_runnable_(const std::string &name) const {
 uint32_t MatrixWeb::app_duration_ms_(const std::string &name) const {
   if (const auto *b = builtin(name))
     return (uint32_t) (this->number_(b->duration_number, 10) * 1000.0f);
+  for (const auto &i : this->informers_)
+    if (i.id == name && i.duration_ms > 0)
+      return i.duration_ms;
   for (const auto &a : this->pushed_)
     if (a.name == name && a.duration_ms > 0)
       return a.duration_ms;
@@ -246,6 +252,11 @@ AppView MatrixWeb::current_app() const {
     if (a.name == name) {
       v.kind = AppKind::PUSHED;
       v.app = &a;
+    }
+  for (const auto &i : this->informers_)
+    if (i.id == name) {
+      v.kind = AppKind::INFORMER;
+      v.informer = &i;
     }
   return v;
 }

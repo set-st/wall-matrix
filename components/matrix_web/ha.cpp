@@ -23,9 +23,11 @@ void MatrixWeb::watch_ha(const std::string &entity, const std::string &attribute
     return;
   const std::string key = attribute.empty() ? entity : entity + "|" + attribute;
   auto &sub = this->ha_subs_[key];
-  sub.cb = std::move(cb);
+  if (cb)  // без обробника (інформери) — лише кешуємо значення, чужий обробник не чіпаємо
+    sub.cb = std::move(cb);
   if (sub.has_value) {
-    sub.cb(sub.value);  // останнє відоме значення — одразу
+    if (sub.cb)
+      sub.cb(sub.value);  // останнє відоме значення — одразу
     return;
   }
   if (sub.subscribed)
@@ -67,6 +69,14 @@ void MatrixWeb::watch_ha(const std::string &entity, const std::string &attribute
 #else
   ESP_LOGW(TAG, "Built without API, cannot watch %s", key.c_str());
 #endif
+}
+
+const std::string *MatrixWeb::ha_value(const std::string &entity, const std::string &attribute) const {
+  const std::string key = attribute.empty() ? entity : entity + "|" + attribute;
+  auto it = this->ha_subs_.find(key);
+  if (it == this->ha_subs_.end() || !it->second.has_value)
+    return nullptr;
+  return &it->second.value;
 }
 
 }  // namespace esphome::matrix_web

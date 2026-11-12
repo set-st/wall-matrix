@@ -19,6 +19,8 @@
 namespace esphome::matrix_web {
 
 static const char *const TAG = "matrix_web.api";
+
+bool parse_informer(JsonObjectConst o, Informer &inf);  // informers.cpp
 static constexpr size_t MAX_JSON_BODY = 4096;
 
 // Доступ до захищеного конструктора запиту ESPHome
@@ -204,8 +206,16 @@ std::string MatrixWeb::build_apps_json_() {
     out += ",\"slot\":" + std::to_string(i);
     out += ",\"present\":";
     out += this->app_present_(name) ? "true" : "false";
+    const Informer *inf = nullptr;
+    for (const auto &x : this->informers_)
+      if (x.id == name)
+        inf = &x;
     out += ",\"origin\":";
-    out += builtin ? "\"builtin\"" : "\"pushed\"";
+    out += builtin ? "\"builtin\"" : (inf ? "\"informer\"" : "\"pushed\"");
+    if (inf) {
+      out += ",\"title\":";
+      jstr(out, inf->title);
+    }
     out += ",\"active\":";
     out += (int) i == this->current_ && this->notes_.empty() ? "true" : "false";
     out += ",\"durationMs\":" + std::to_string(this->app_duration_ms_(name));
@@ -350,13 +360,17 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
     if (is_del) {
       if (this->is_builtin_(name))
         return err(400, "badRequest", "built-in apps cannot be deleted");
+      if (name.rfind("inf_", 0) == 0) {
+        this->defer([this, name]() { this->remove_informer_(name); });
+        return ok();
+      }
       this->defer([this, name]() { this->remove_pushed_(name); });
       return ok();
     }
     if (is_post || is_put) {
       // Розширення: створити / оновити pushed-застосунок
-      if (!valid_name(name) || this->is_builtin_(name))
-        return err(400, "badRequest", "app name: 1-32 chars of A-Z a-z 0-9 _ -, not a built-in");
+      if (!valid_name(name) || this->is_builtin_(name) || name.rfind("inf_", 0) == 0)
+        return err(400, "badRequest", "app name: 1-32 chars of A-Z a-z 0-9 _ -, not a built-in, not inf_*");
       JsonDocument doc;
       if (!parse(doc))
         return err(400, "badRequest", "JSON body expected");
@@ -380,6 +394,64 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
       return ok();
     }
     return err(405, "methodNotAllowed", "allowed: POST, PUT, DELETE");
+  }
+
+  // ----- informers (застосунки користувача) -----
+  if (path == "informers") {
+    if (is_get) {
+      rep.body = this->informers_json_();
+      return rep;
+    }
+    if (is_post) {
+      // Новий інформер із шаблону (або з тіла запиту)
+      Informer inf;
+      {
+        std::lock_guard<std::recursive_mutex> guard(this->lock_);
+        if ((int) this->informers_.size() >= INFORMER_MAX)
+          return err(507, "storageFull", "too many informers");
+        inf.id = "inf_" + std::to_string(this->informer_seq_++);
+      }
+      JsonDocument doc;
+      if (parse(doc) && !doc["lines"].isNull()) {
+        parse_informer(doc.as<JsonObjectConst>(), inf);
+      } else {
+        inf.title = "Інформер " + inf.id.substr(4);
+        inf.line[0].fmt = "Текст";
+        inf.line[0].color = 0xFFD200;
+        inf.line[1].color = 0xFFFFFF;
+      }
+      if (inf.title.empty())
+        inf.title = "Інформер " + inf.id.substr(4);
+      this->defer([this, inf]() { this->upsert_informer_(inf); });
+      rep.body = "{\"ok\":true,\"id\":\"" + inf.id + "\"}";
+      return rep;
+    }
+    return err(405, "methodNotAllowed", "allowed: GET, POST");
+  }
+  if (path.rfind("informers/", 0) == 0) {
+    const std::string id = url_decode(path.substr(10));
+    {
+      std::lock_guard<std::recursive_mutex> guard(this->lock_);
+      if (this->find_informer_(id) == nullptr)
+        return err(404, "notFound", "no such informer");
+    }
+    if (is_del) {
+      this->defer([this, id]() { this->remove_informer_(id); });
+      return ok();
+    }
+    if (is_put || is_post || is_patch) {
+      JsonDocument doc;
+      if (!parse(doc))
+        return err(400, "badRequest", "JSON body expected");
+      Informer inf;
+      inf.id = id;
+      parse_informer(doc.as<JsonObjectConst>(), inf);
+      if (inf.title.empty())
+        inf.title = "Інформер " + id.substr(4);
+      this->defer([this, inf]() { this->upsert_informer_(inf); });
+      return ok();
+    }
+    return err(405, "methodNotAllowed", "allowed: PUT, DELETE");
   }
 
   // ----- notifications -----

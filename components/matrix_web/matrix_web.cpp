@@ -69,6 +69,7 @@ template<typename T> static T *find(const std::vector<Entry<T>> &list, const std
 void MatrixWeb::setup() {
   this->load_order_();
   this->load_icons_();
+  this->load_informers_();
   this->current_ = -1;
   this->app_started_ms_ = millis();
   this->base_->init();
