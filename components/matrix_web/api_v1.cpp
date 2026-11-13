@@ -543,21 +543,30 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
   // ----- hardware: підключення матриці (застосовується після перезавантаження) -----
   if (path == "hardware") {
     auto *hub = StripHub::get();
-    auto cfg_json = [](const char *key, StripMode mode, uint8_t pin, bool serp) {
+    auto cfg_json = [](const char *key, const StripConfig &c) {
       std::string o = std::string("\"") + key + "\":{\"mode\":\"";
-      o += mode == StripMode::CHAIN ? "chain" : "direct";
-      o += "\",\"pin\":" + std::to_string(pin) + ",\"serpentine\":";
-      o += serp ? "true" : "false";
+      o += c.mode == (uint8_t) StripMode::CHAIN ? "chain" : "direct";
+      o += "\",\"pin\":" + std::to_string(c.pin);
+      o += ",\"cols\":" + std::to_string(c.cols);
+      o += ",\"chain\":\"";
+      o += c.chain == (uint8_t) ChainOrder::SNAKE ? "snake" : "rows";
+      o += "\",\"serpentine\":";
+      o += c.serpentine ? "true" : "false";
       o += '}';
       return o;
     };
     if (is_get) {
-      const auto &sv = hub->saved();
-      rep.body = "{" + cfg_json("active", hub->mode(), hub->mode() == StripMode::CHAIN ? hub->saved().pin : hub->pin(),
-                                hub->serpentine());
-      rep.body += "," + cfg_json("saved", (StripMode) sv.mode, sv.pin, sv.serpentine);
+      StripConfig active = hub->saved();
+      active.mode = (uint8_t) hub->mode();
+      active.pin = hub->mode() == StripMode::DIRECT ? hub->pin() : hub->saved().pin;
+      active.cols = hub->cols();
+      active.chain = (uint8_t) hub->chain();
+      active.serpentine = hub->serpentine();
+      rep.body = "{" + cfg_json("active", active) + "," + cfg_json("saved", hub->saved());
       rep.body += ",\"statusPin\":" + std::to_string(hub->status_pin());
-      rep.body += ",\"leds\":" + std::to_string(hub->matrix_leds());
+      rep.body += ",\"width\":" + std::to_string(hub->width());
+      rep.body += ",\"height\":" + std::to_string(hub->height());
+      rep.body += ",\"colsMin\":" + std::to_string(COLS_MIN) + ",\"colsMax\":" + std::to_string(COLS_MAX);
       rep.body += ",\"pins\":[";
       bool first = true;
       for (uint8_t p : hub->allowed_pins()) {
@@ -572,14 +581,20 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
     if (is_put || is_post || is_patch) {
       JsonDocument doc;
       if (!parse(doc))
-        return err(400, "badRequest", "JSON body {\"mode\", \"pin\", \"serpentine\", \"reboot\"} expected");
+        return err(400, "badRequest", "JSON body {mode, pin, cols, chain, serpentine, reboot} expected");
       StripConfig c = hub->saved();
       const std::string mode = doc["mode"] | (c.mode ? "direct" : "chain");
       if (mode != "chain" && mode != "direct")
         return err(400, "badRequest", "mode: chain або direct");
       c.mode = mode == "direct" ? 1 : 0;
+      const std::string chain = doc["chain"] | (c.chain ? "snake" : "rows");
+      if (chain != "rows" && chain != "snake")
+        return err(400, "badRequest", "chain: rows або snake");
+      c.chain = chain == "snake" ? 1 : 0;
       if (!doc["pin"].isNull())
         c.pin = (uint8_t) num(doc["pin"], c.pin);
+      if (!doc["cols"].isNull())
+        c.cols = (uint8_t) num(doc["cols"], c.cols);
       if (!doc["serpentine"].isNull())
         c.serpentine = doc["serpentine"].as<bool>();
       std::string why;

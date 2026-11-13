@@ -9,7 +9,8 @@ light:
     id: matrix_light
     name: "Matrix"
     role: matrix
-    num_leds: 512
+    default_cols: ${matrix_cols}
+    default_chain: ${matrix_chain}
     default_mode: ${matrix_wiring}
     default_pin: ${matrix_pin}
     status_pin: ${status_pin}
@@ -70,21 +71,19 @@ display:
   - platform: addressable_light
     id: matrix
     addressable_light_id: matrix_light
-    width: 32
+    # Зібрано під найбільшу матрицю (8 модулів = 64 px); фактичний розмір — із веб-панелі
+    width: 64
     height: 16
     update_interval: 50ms
     pixel_mapper: |-
-      // 8 панелей 8×8 у сітці 4×2, порядок: зліва направо, згори вниз
-      const int tile = (y / 8) * 4 + (x / 8);
-      int lx = x % 8;
-      const int ly = y % 8;
-      if (matrix_web::StripHub::get()->serpentine() && (ly % 2 == 1)) lx = 7 - lx;
-      return tile * 64 + ly * 8 + lx;
+      // Розкладка модулів (ширина, порядок, змійка) — у драйвері; поза матрицею — -1
+      return matrix_web::StripHub::get()->index(x, y);
     lambda: |-
       using matrix_gfx::dim;
       using matrix_gfx::fade;
       using matrix_gfx::hex_color;
       auto *web = id(web_panel);
+      matrix_gfx::W = matrix_web::StripHub::get()->width();  // ширина для всіх розкладок
 
       // Яскравість і обмеження струму — лінійно, через корекцію стрічки (гамму вже
       // зроблено в dim()). Так кольори зберігають глибину, і немає спалаху білим,
@@ -134,7 +133,7 @@ display:
         case matrix_web::AppKind::DATE:
           matrix_gfx::draw_date(it, t, dim(hex_color(id(color_date).state, 0xFFFFFF), 1.0f),
                                 dim(hex_color(id(color_accent).state, 0x00A0FF), 1.0f),
-                                id(week_start).current_option() == std::string("Monday"));
+                                id(week_start).current_option() == std::string("Monday"), id(f_tall), id(f_small));
           break;
 
         case matrix_web::AppKind::WEATHER: {
@@ -150,19 +149,25 @@ display:
           else if (w == "lightning" || w == "lightning-rainy") { icon = id(ic_lightning); ic = Color(255, 230, 0); }
           else if (w == "fog")                       { icon = id(ic_fog);       ic = Color(140, 140, 140); }
           else if (w == "windy" || w == "windy-variant") { icon = id(ic_windy); ic = Color(180, 220, 255); }
-          it.image(0, 0, icon, dim(ic, 1.0f));
-          matrix_gfx::draw_temperature(it, 17, 15, temp, white);
+          // Від 32 px — іконка 16×16 і температура (група 32 px по центру); вужче — лише температура
+          if (matrix_gfx::W >= 32) {
+            const int gx = (matrix_gfx::W - 32) / 2;
+            it.image(gx, 0, icon, dim(ic, 1.0f));
+            matrix_gfx::draw_temperature(it, gx + 17, 15, temp, white);
+          } else {
+            matrix_gfx::draw_temperature(it, 0, matrix_gfx::W, temp, white);
+          }
           break;
         }
 
         case matrix_web::AppKind::TEXT: {
           // Іконка з бібліотеки зліва (якщо увімкнена), праворуч — два рядки
           const auto *ic = id(text_icon).state ? web->icon(id(text_icon_name).state) : nullptr;
-          int x0 = 0, w = 32;
+          int x0 = 0, w = matrix_gfx::W;
           if (ic != nullptr) {
             matrix_gfx::draw_rgb(it, 0, (16 - ic->h) / 2, ic->w, ic->h, ic->frame_at(millis()), 1.0f);
             x0 = ic->w + 1;
-            w = 32 - x0;
+            w = matrix_gfx::W - x0;
           }
           matrix_gfx::draw_line(it, id(f_small), prep(id(text_line1).state), x0, 0, w,
                                 dim(hex_color(id(color_line1).state, 0xFFD200), 1.0f), web->scroll(0), step);
@@ -195,6 +200,7 @@ display:
 
         default:
           matrix_gfx::draw_clock(it, t, dim(hex_color(id(color_clock).state, 0xFFFFFF), 1.0f),
-                                 id(clock_24h).state, id(clock_blink).state, id(clock_seconds_bar).state);
+                                 id(clock_24h).state, id(clock_blink).state, id(clock_seconds_bar).state,
+                                 id(f_tall), id(f_small));
           break;
       }

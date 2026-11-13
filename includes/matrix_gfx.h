@@ -1,6 +1,6 @@
 #pragma once
-// Графічні примітиви для матриці 32×16: великі цифри 5×14, годинник, дата, температура,
-// сповіщення, два рядки тексту, іконка і тестовий екран.
+// Графічні примітиви для матриці N×16 (ширина 16…64 px): великі цифри 5×14, годинник, дата,
+// температура, сповіщення, два рядки тексту, іконка і тестовий екран.
 
 #include "esphome.h"
 #include <cmath>
@@ -33,8 +33,15 @@ static const uint8_t DIGITS_5X7[10][7] = {
 constexpr int DIGIT_W = 5;
 constexpr int DIGIT_H = 14;
 
-// Позиції чотирьох великих цифр: [2..6] [8..12] : [15..16] [19..23] [25..29]
-constexpr int POS[4] = {2, 8, 19, 25};
+// Поточна ширина матриці; виставляє lambda дисплея на кожному кадрі (висота завжди 16).
+inline int W = 32;
+
+// Група з чотирьох великих цифр «ГГ:ХХ» має ширину 28 px; на ширших матрицях — по центру.
+// Відносні позиції цифр: [0..4] [6..10] : [13..14] [17..21] [23..27]
+constexpr int BIG_W = 28;
+constexpr int POS[4] = {0, 6, 17, 23};
+inline int big_x0() { return (W - BIG_W) / 2; }
+inline bool big_fits() { return W >= 32; }
 
 // "#RRGGBB" / "RRGGBB" → 0xRRGGBB; у разі помилки — fallback
 inline uint32_t parse_hex(const std::string &s, uint32_t fallback) {
@@ -86,51 +93,99 @@ inline void big_digit(Display &it, int x, int y, int d, Color c) {
 }
 
 inline void two_pairs(Display &it, int a, int b, Color c) {
-  big_digit(it, POS[0], 0, a / 10, c);
-  big_digit(it, POS[1], 0, a % 10, c);
-  big_digit(it, POS[2], 0, b / 10, c);
-  big_digit(it, POS[3], 0, b % 10, c);
+  const int o = big_x0();
+  big_digit(it, o + POS[0], 0, a / 10, c);
+  big_digit(it, o + POS[1], 0, a % 10, c);
+  big_digit(it, o + POS[2], 0, b / 10, c);
+  big_digit(it, o + POS[3], 0, b % 10, c);
 }
 
 inline void placeholder(Display &it, Color c) {
-  for (int x : POS) it.filled_rectangle(x, 6, DIGIT_W, 2, c);
+  const int o = big_x0();
+  for (int x : POS) it.filled_rectangle(o + x, 6, DIGIT_W, 2, c);
+}
+
+// Вузькі матриці (16–24 px): текст високим шрифтом в один рядок, а якщо не влазить —
+// дрібним у два рядки (a зверху, b знизу). Повертає true, якщо вийшло одним рядком.
+inline bool narrow_pair(Display &it, BaseFont *tall, BaseFont *small, const char *a, const char *sep,
+                        const char *b, Color c) {
+  char one[16];
+  snprintf(one, sizeof(one), "%s%s%s", a, sep, b);
+  int x1, y1, tw, th;
+  if (tall != nullptr) {
+    it.get_text_bounds(0, 0, one, tall, TextAlign::TOP_LEFT, &x1, &y1, &tw, &th);
+    if (tw <= W) {
+      it.print((W - tw) / 2, 0, tall, c, TextAlign::TOP_LEFT, one);
+      return true;
+    }
+  }
+  if (small != nullptr) {
+    it.get_text_bounds(0, 0, a, small, TextAlign::TOP_LEFT, &x1, &y1, &tw, &th);
+    it.print((W - tw) / 2, 0, small, c, TextAlign::TOP_LEFT, a);
+    it.get_text_bounds(0, 0, b, small, TextAlign::TOP_LEFT, &x1, &y1, &tw, &th);
+    it.print((W - tw) / 2, 8, small, c, TextAlign::TOP_LEFT, b);
+  }
+  return false;
 }
 
 // Годинник ГГ:ХХ, двокрапка (блимає або постійна), знизу смужка секунд.
 inline void draw_clock(Display &it, const ESPTime &t, Color c, bool h24 = true, bool blink = true,
-                       bool seconds_bar = true) {
-  if (!t.is_valid()) {
-    placeholder(it, c);
-    return;
-  }
+                       bool seconds_bar = true, BaseFont *tall = nullptr, BaseFont *small = nullptr) {
   int hour = t.hour;
   if (!h24) {
     hour %= 12;
     if (hour == 0) hour = 12;
   }
-  two_pairs(it, hour, t.minute, c);
-  if (!blink || t.second % 2 == 0) {
-    it.filled_rectangle(15, 3, 2, 2, c);
-    it.filled_rectangle(15, 9, 2, 2, c);
+  bool bar_ok = true;
+  if (!big_fits()) {
+    char hh[4] = "--", mm[4] = "--";
+    if (t.is_valid()) {
+      snprintf(hh, sizeof(hh), "%02d", hour);
+      snprintf(mm, sizeof(mm), "%02d", t.minute);
+    }
+    const bool colon = !blink || t.second % 2 == 0;
+    bar_ok = narrow_pair(it, tall, small, hh, colon ? ":" : " ", mm, c);
+  } else if (!t.is_valid()) {
+    placeholder(it, c);
+    return;
+  } else {
+    two_pairs(it, hour, t.minute, c);
+    if (!blink || t.second % 2 == 0) {
+      const int o = big_x0();
+      it.filled_rectangle(o + 13, 3, 2, 2, c);
+      it.filled_rectangle(o + 13, 9, 2, 2, c);
+    }
   }
-  if (seconds_bar) {
-    it.horizontal_line(0, 15, 32, fade(c, 0.08f));
-    it.horizontal_line(0, 15, (t.second + 1) * 32 / 60, c);
+  if (seconds_bar && bar_ok && t.is_valid()) {
+    it.horizontal_line(0, 15, W, fade(c, 0.08f));
+    it.horizontal_line(0, 15, (t.second + 1) * W / 60, c);
   }
 }
 
 // Дата ДД.ММ, знизу індикатор дня тижня (Пн…Нд або Нд…Сб).
-inline void draw_date(Display &it, const ESPTime &t, Color c, Color accent, bool monday_first = true) {
+inline void draw_date(Display &it, const ESPTime &t, Color c, Color accent, bool monday_first = true,
+                      BaseFont *tall = nullptr, BaseFont *small = nullptr) {
+  if (!big_fits()) {
+    char dd[4] = "--", mm[4] = "--";
+    if (t.is_valid()) {
+      snprintf(dd, sizeof(dd), "%02d", t.day_of_month);
+      snprintf(mm, sizeof(mm), "%02d", t.month);
+    }
+    narrow_pair(it, tall, small, dd, ".", mm, c);
+    return;
+  }
   if (!t.is_valid()) {
     placeholder(it, c);
     return;
   }
   two_pairs(it, t.day_of_month, t.month, c);
-  it.filled_rectangle(15, 12, 2, 2, c);
+  it.filled_rectangle(big_x0() + 13, 12, 2, 2, c);
+  // Індикатор днів тижня: 7 відрізків по 3 px через 1 (27 px), по центру.
   // day_of_week: 1 = Нд … 7 = Сб
   const int today = monday_first ? (t.day_of_week + 5) % 7 : t.day_of_week - 1;
+  const int wx = (W - 27) / 2;
   for (int i = 0; i < 7; i++)
-    it.horizontal_line(2 + i * 4, 15, 3, i == today ? accent : fade(c, 0.08f));
+    it.horizontal_line(wx + i * 4, 15, 3, i == today ? accent : fade(c, 0.08f));
 }
 
 // Температура великими цифрами, по центру області [x0, x0 + area_w).
@@ -166,17 +221,19 @@ inline void draw_temperature(Display &it, int x0, int area_w, float value, Color
 // scroll_pos — поточна позиція, step — зсув за кадр у пікселях.
 inline void draw_notification(Display &it, BaseFont *font, const std::string &text, Color frame,
                               Color fg, float &scroll_pos, float step) {
-  it.horizontal_line(0, 0, 32, frame);
-  it.horizontal_line(0, 15, 32, frame);
+  it.horizontal_line(0, 0, W, frame);
+  it.horizontal_line(0, 15, W, frame);
   int x1, y1, w, h;
   it.get_text_bounds(0, 0, text.c_str(), font, TextAlign::TOP_LEFT, &x1, &y1, &w, &h);
-  if (w <= 32) {
-    it.print(16, 8, font, fg, TextAlign::CENTER, text.c_str());
+  if (w <= W) {
+    it.print(W / 2, 8, font, fg, TextAlign::CENTER, text.c_str());
     return;
   }
+  if (scroll_pos > W)
+    scroll_pos = W;
   it.print((int) scroll_pos, 8, font, fg, TextAlign::CENTER_LEFT, text.c_str());
   scroll_pos -= step;
-  if (scroll_pos < -w) scroll_pos = 32;
+  if (scroll_pos < -w) scroll_pos = W;
 }
 
 // Тестовий екран: кожна панель своїм кольором (веселка зліва направо, згори вниз),
@@ -186,12 +243,13 @@ inline void draw_test(Display &it, float k) {
       Color(255, 0, 0),   Color(255, 120, 0), Color(255, 255, 0), Color(0, 255, 0),
       Color(0, 255, 255), Color(0, 0, 255),   Color(160, 0, 255), Color(255, 0, 160),
   };
-  for (int i = 0; i < 8; i++) {
-    const int tx = (i % 4) * 8, ty = (i / 4) * 8;
-    it.filled_rectangle(tx, ty, 8, 8, dim(TILE[i], k * 0.3f));
+  const int cols = W / 8;
+  for (int i = 0; i < cols * 2; i++) {
+    const int tx = (i % cols) * 8, ty = (i / cols) * 8;
+    it.filled_rectangle(tx, ty, 8, 8, dim(TILE[i % 8], k * 0.3f));
     it.draw_pixel_at(tx, ty, dim(Color(255, 255, 255), k));
   }
-  it.line(0, 0, 31, 15, dim(Color(255, 255, 255), k));
+  it.line(0, 0, W - 1, 15, dim(Color(255, 255, 255), k));
 }
 
 // ---------------------------------------------------------------------------
@@ -308,13 +366,13 @@ inline void draw_informer(Display &it, BaseFont *small, BaseFont *tall, bool sin
       draw_rgb(it, 0, (16 - ic1h) / 2, ic1w, ic1h, ic1, 1.0f);
       x0 = ic1w + 1;
     }
-    draw_line(it, tall, t1, x0, 0, 32 - x0, c1, p0, step, 16);
+    draw_line(it, tall, t1, x0, 0, W - x0, c1, p0, step, 16);
     return;
   }
   if (ic1 != nullptr && ic1h >= 16) {
     draw_rgb(it, 0, 0, ic1w, ic1h, ic1, 1.0f);
-    draw_line(it, small, t1, ic1w + 1, 0, 31 - ic1w, c1, p0, step);
-    draw_line(it, small, t2, ic1w + 1, 8, 31 - ic1w, c2, p1, step);
+    draw_line(it, small, t1, ic1w + 1, 0, W - 1 - ic1w, c1, p0, step);
+    draw_line(it, small, t2, ic1w + 1, 8, W - 1 - ic1w, c2, p1, step);
     return;
   }
   int x = 0;
@@ -322,13 +380,13 @@ inline void draw_informer(Display &it, BaseFont *small, BaseFont *tall, bool sin
     draw_rgb(it, 0, 0, ic1w, ic1h, ic1, 1.0f);
     x = ic1w + 1;
   }
-  draw_line(it, small, t1, x, 0, 32 - x, c1, p0, step);
+  draw_line(it, small, t1, x, 0, W - x, c1, p0, step);
   x = 0;
   if (ic2 != nullptr && ic2h <= 8) {
     draw_rgb(it, 0, 8, ic2w, ic2h, ic2, 1.0f);
     x = ic2w + 1;
   }
-  draw_line(it, small, t2, x, 8, 32 - x, c2, p1, step);
+  draw_line(it, small, t2, x, 8, W - x, c2, p1, step);
 }
 
 // Застосунок / сповіщення з іконкою: іконка зліва (по центру по вертикалі), праворуч текст.
@@ -340,7 +398,7 @@ inline void draw_app(Display &it, BaseFont *font, const uint8_t *icon, int iw, i
     draw_rgb(it, 0, (16 - ih) / 2, iw, ih, icon, 1.0f);
     x0 = iw + 1;
   }
-  const int w = 32 - x0;
+  const int w = W - x0;
   const size_t nl = text.find('\n');
   if (nl == std::string::npos) {
     draw_line(it, font, text, x0, progress >= 0 ? 2 : 4, w, c, p0, step);

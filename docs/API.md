@@ -121,8 +121,8 @@ POST без тіла ESPHome відхиляє з кодом 411 — у curl до
 
 | Запит | Що робить |
 |---|---|
-| `GET /api/v1/hardware` | `{active: {mode, pin, serpentine}, saved: {…}, statusPin, leds, pins: [дозволені GPIO]}` |
-| `PUT /api/v1/hardware` `{"mode": "chain"\|"direct", "pin": 5, "serpentine": false, "reboot": true}` | зберегти (діє після перезавантаження; `reboot: true` — одразу перезавантажити) |
+| `GET /api/v1/hardware` | `{active: {mode, pin, cols, chain, serpentine}, saved: {…}, statusPin, width, height, colsMin, colsMax, pins}` |
+| `PUT /api/v1/hardware` `{"mode": "chain"\|"direct", "pin": 5, "cols": 4, "chain": "rows"\|"snake", "serpentine": false, "reboot": true}` | зберегти (діє після перезавантаження; `reboot: true` — одразу перезавантажити) |
 
 `chain` — матриця після вбудованого світлодіода плати (`statusPin`), `direct` — на `pin`.
 

@@ -11,7 +11,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import light
-from esphome.const import CONF_NUM_LEDS, CONF_OUTPUT_ID
+from esphome.const import CONF_OUTPUT_ID
 
 from . import matrix_web_ns
 
@@ -20,6 +20,7 @@ DEPENDENCIES = ["esp32"]
 StripLight = matrix_web_ns.class_("StripLight", light.AddressableLight)
 StripHub = matrix_web_ns.class_("StripHub")
 StripMode = matrix_web_ns.enum("StripMode", is_class=True)
+ChainOrder = matrix_web_ns.enum("ChainOrder", is_class=True)
 
 CONF_ROLE = "role"
 CONF_DEFAULT_MODE = "default_mode"
@@ -27,8 +28,11 @@ CONF_DEFAULT_PIN = "default_pin"
 CONF_STATUS_PIN = "status_pin"
 CONF_SERPENTINE = "serpentine"
 CONF_RESERVED_PINS = "reserved_pins"
+CONF_DEFAULT_COLS = "default_cols"
+CONF_DEFAULT_CHAIN = "default_chain"
 
 MODES = {"chain": StripMode.CHAIN, "direct": StripMode.DIRECT}
+CHAINS = {"rows": ChainOrder.ROWS, "snake": ChainOrder.SNAKE}
 
 CONFIG_SCHEMA = light.ADDRESSABLE_LIGHT_SCHEMA.extend(
     {
@@ -37,7 +41,9 @@ CONFIG_SCHEMA = light.ADDRESSABLE_LIGHT_SCHEMA.extend(
         cv.Optional(CONF_DEFAULT_MODE, default="chain"): cv.one_of(*MODES, lower=True),
         cv.Optional(CONF_DEFAULT_PIN, default=5): cv.int_range(0, 48),
         cv.Optional(CONF_STATUS_PIN, default=48): cv.int_range(0, 48),
-        cv.Optional(CONF_NUM_LEDS, default=512): cv.int_range(1, 1024),
+        # Ширина в модулях 8×8 (висота — 2 модулі); змінюється у веб-панелі
+        cv.Optional(CONF_DEFAULT_COLS, default=4): cv.int_range(2, 8),
+        cv.Optional(CONF_DEFAULT_CHAIN, default="rows"): cv.one_of(*CHAINS, lower=True),
         cv.Optional(CONF_SERPENTINE, default=False): cv.boolean,
         cv.Optional(CONF_RESERVED_PINS, default=[]): cv.ensure_list(cv.int_range(0, 48)),
     }
@@ -57,7 +63,8 @@ async def to_code(config):
                 MODES[config[CONF_DEFAULT_MODE]],
                 config[CONF_DEFAULT_PIN],
                 config[CONF_STATUS_PIN],
-                config[CONF_NUM_LEDS],
+                config[CONF_DEFAULT_COLS],
+                CHAINS[config[CONF_DEFAULT_CHAIN]],
                 config[CONF_SERPENTINE],
             )
         )

@@ -360,6 +360,13 @@
     «одиниця» вона додається після значення сама). Іконка 16×16 у рядку 1 займає обидва рядки.</div>
 </template>
 <template id="tpl-hw">
+  <div class="row"><div class="lbl"><b>Розмір матриці</b><span>Ширина в модулях 8×8; висота — 2 модулі (16 px).</span></div>
+    <select id="hwCols"></select></div>
+  <div class="row"><div class="lbl"><b>Порядок модулів</b><span id="hwChainHint"></span></div>
+    <select id="hwChain">
+      <option value="rows">По рядах (у кінці ряду — провід до початку наступного)</option>
+      <option value="snake">Змійкою (другий ряд справа наліво, модулі перевернуті)</option>
+    </select></div>
   <div class="row"><div class="lbl"><b>Як підключена матриця</b><span id="hwModeHint"></span></div>
     <select id="hwMode">
       <option value="chain">Після вбудованого світлодіода (GPIO48)</option>
@@ -943,16 +950,25 @@ function setupWifiForm() {
 }
 
 /* ===================== підключення матриці ===================== */
+const CHAIN_HINT = {
+  rows: "Верхній ряд: модулі зліва направо; від останнього — провід до першого модуля нижнього ряду, теж зліва направо.",
+  snake: "Верхній ряд зліва направо, нижній — справа наліво. Модулі нижнього ряду перевернуті на 180°, тож дроти між рядами короткі.",
+};
 const HW_HINT = {
   chain: "DIN першої панелі — до виходу DOUT вбудованого світлодіода плати (через 330 Ом). Світлодіод піднімає рівень сигналу — перетворювач рівнів не потрібен; піксель 0 — індикатор Wi-Fi.",
   direct: "DIN першої панелі — до вибраного піна (через 330 Ом). ESP32 видає 3.3 В: короткий провід зазвичай працює, але надійніше через перетворювач рівнів 74AHCT125. Вбудований світлодіод лишається індикатором.",
 };
 let hw = null;
-const hwLabel = c => c.mode === "chain" ? "після вбудованого світлодіода" : `напряму, GPIO${c.pin}`;
+const hwLabel = c => `${c.cols * 8}×16, ${c.chain === "snake" ? "змійкою" : "по рядах"}, ` +
+  (c.mode === "chain" ? "після вбудованого світлодіода" : `напряму, GPIO${c.pin}`) + (c.serpentine ? ", змійка в модулі" : "");
 
 async function loadHardware() {
   try { hw = await api("GET", "hardware"); } catch (e) { $("hwStatus").textContent = "Не вдалося прочитати"; return; }
   $("hwPin").replaceChildren(...hw.pins.map(p => Object.assign(el("option", null, "GPIO" + p), { value: p })));
+  const cols = []; for (let c = hw.colsMin; c <= hw.colsMax; c++) cols.push(c);
+  $("hwCols").replaceChildren(...cols.map(c => Object.assign(el("option", null, `${c} × 2 модулі — ${c * 8}×16 px, ${c * 128} LED`), { value: c })));
+  $("hwCols").value = hw.saved.cols;
+  $("hwChain").value = hw.saved.chain;
   $("hwMode").value = hw.saved.mode;
   $("hwPin").value = hw.saved.pin;
   $("hwSerp").checked = hw.saved.serpentine;
@@ -962,18 +978,20 @@ function syncHw() {
   const mode = $("hwMode").value;
   $("hwPinRow").style.display = mode === "direct" ? "" : "none";
   $("hwModeHint").textContent = HW_HINT[mode];
+  $("hwChainHint").textContent = CHAIN_HINT[$("hwChain").value];
   if (!hw) return;
   const a = hw.active, sv = hw.saved;
-  const same = a.mode === sv.mode && (a.mode === "chain" || a.pin === sv.pin) && a.serpentine === sv.serpentine;
-  $("hwStatus").textContent = "Зараз: " + hwLabel(a) + (a.serpentine ? ", змійка" : "") +
-    (same ? "" : ` · після перезавантаження: ${hwLabel(sv)}${sv.serpentine ? ", змійка" : ""}`);
+  const same = hwLabel(a) === hwLabel(sv) && (a.mode === "chain" || a.pin === sv.pin);
+  $("hwStatus").textContent = "Зараз: " + hwLabel(a) + (same ? "" : ` · після перезавантаження: ${hwLabel(sv)}`);
 }
 
 function setupHardware() {
   $("hwMode").onchange = syncHw;
+  $("hwChain").onchange = syncHw;
   $("hwSave").onclick = async () => {
-    const body = { mode: $("hwMode").value, pin: +$("hwPin").value, serpentine: $("hwSerp").checked, reboot: true };
-    const what = body.mode === "chain" ? "після вбудованого світлодіода" : `напряму на GPIO${body.pin}`;
+    const body = { mode: $("hwMode").value, pin: +$("hwPin").value, cols: +$("hwCols").value,
+      chain: $("hwChain").value, serpentine: $("hwSerp").checked, reboot: true };
+    const what = hwLabel(body);
     if (!confirm(`Зберегти підключення «${what}» і перезавантажити панель?`)) return;
     if (await apiTry("PUT", "hardware", body)) {
       $("hwStatus").textContent = "Перезавантаження…";

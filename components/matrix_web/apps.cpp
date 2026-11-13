@@ -1,5 +1,6 @@
 // Застосунки (вбудовані + pushed), їх порядок і ротація; черга сповіщень.
 #include "matrix_web.h"
+#include "strip.h"
 
 #include <algorithm>
 #include <cmath>
@@ -417,7 +418,7 @@ void MatrixWeb::loop() {
     if (n.started_ms == 0) {
       n.started_ms = now | 1;
       this->scroll_[0] = this->scroll_[1] = SCROLL_PAUSE;
-      this->scroll_[2] = n.icon.empty() ? 32 : SCROLL_PAUSE;
+      this->scroll_[2] = n.icon.empty() ? (float) StripHub::get()->width() : SCROLL_PAUSE;
     } else if (!n.hold) {
       const uint32_t dur = n.duration_ms > 0 ? n.duration_ms
                                              : (uint32_t) (this->number_("notify_duration", 10) * 1000.0f);

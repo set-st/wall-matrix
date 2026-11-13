@@ -68,6 +68,10 @@ template<typename T> static T *find(const std::vector<Entry<T>> &list, const std
 // Component
 // ---------------------------------------------------------------------------
 void MatrixWeb::setup() {
+  // Розмір матриці — із драйвера стрічки (вже ініціалізований: світло має пріоритет HARDWARE)
+  StripHub::get()->init();
+  this->width_ = StripHub::get()->width();
+  this->height_ = StripHub::get()->height();
   this->load_order_();
   this->load_icons_();
   this->load_informers_();
@@ -286,15 +290,8 @@ bool MatrixWeb::read_pixel_(int x, int y, Color &c) const {
   if (this->light_ == nullptr)
     return false;
   auto *strip = static_cast<light::AddressableLight *>(this->light_->get_output());
-  // Та сама розкладка, що й pixel_mapper: панелі 8×8 зліва направо, згори вниз
-  const int tiles_x = this->width_ / 8;
-  const int tile = (y / 8) * tiles_x + (x / 8);
-  int lx = x % 8;
-  const int ly = y % 8;
-  if (StripHub::get()->serpentine() && (ly % 2 == 1))
-    lx = 7 - lx;
-  const int32_t idx = this->pixel_offset_ + tile * 64 + ly * 8 + lx;
-  if (idx >= strip->size())
+  const int idx = StripHub::get()->index(x, y);  // та сама розкладка, що й у pixel_mapper
+  if (idx < 0 || idx >= strip->size())
     return false;
   c = (*strip)[idx].get();
   return true;

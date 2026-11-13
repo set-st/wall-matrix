@@ -24,12 +24,32 @@ StripHub *StripHub::get() {
   return &hub;
 }
 
-void StripHub::set_defaults(StripMode mode, uint8_t pin, uint8_t status_pin, uint16_t matrix_leds, bool serpentine) {
+void StripHub::set_defaults(StripMode mode, uint8_t pin, uint8_t status_pin, uint8_t cols, ChainOrder chain,
+                            bool serpentine) {
   this->defaults_.mode = (uint8_t) mode;
   this->defaults_.pin = pin;
   this->defaults_.serpentine = serpentine;
+  this->defaults_.cols = cols;
+  this->defaults_.chain = (uint8_t) chain;
   this->status_pin_ = status_pin;
-  this->matrix_leds_ = matrix_leds;
+}
+
+int StripHub::index(int x, int y) const {
+  const int W = this->width();
+  if (x < 0 || y < 0 || x >= W || y >= this->height())
+    return -1;
+  const int C = this->cols();
+  const int prow = y / PANEL;
+  int pcol = x / PANEL;
+  int lx = x % PANEL, ly = y % PANEL;
+  if (this->chain() == ChainOrder::SNAKE && (prow % 2 == 1)) {
+    pcol = C - 1 - pcol;  // ряд іде справа наліво…
+    lx = PANEL - 1 - lx;  // …і модулі в ньому перевернуті на 180°
+    ly = PANEL - 1 - ly;
+  }
+  if (this->serpentine() && (ly % 2 == 1))
+    lx = PANEL - 1 - lx;
+  return (prow * C + pcol) * PANEL * PANEL + ly * PANEL + lx;
 }
 
 bool StripHub::pin_allowed(uint8_t pin) const {
@@ -57,12 +77,20 @@ bool StripHub::save(const StripConfig &c, std::string &err) {
     err = "цей пін не можна використати для матриці";
     return false;
   }
+  if (c.cols < COLS_MIN || c.cols > COLS_MAX) {
+    err = "ширина: від 2 до 8 модулів";
+    return false;
+  }
+  if (c.chain > 1) {
+    err = "порядок модулів: rows або snake";
+    return false;
+  }
   this->saved_ = c;
-  this->saved_.version = 1;
+  this->saved_.version = 2;
   this->pref_.save(&this->saved_);
   global_preferences->sync();
-  ESP_LOGI(TAG, "Saved wiring: mode=%s pin=%u serpentine=%u (after reboot)", c.mode ? "direct" : "chain", c.pin,
-           c.serpentine);
+  ESP_LOGI(TAG, "Saved: mode=%s pin=%u cols=%u chain=%s serpentine=%u (after reboot)", c.mode ? "direct" : "chain",
+           c.pin, c.cols, c.chain ? "snake" : "rows", c.serpentine);
   return true;
 }
 
@@ -107,17 +135,26 @@ void StripHub::init() {
     return;
   this->initialized_ = true;
 
-  this->pref_ = global_preferences->make_preference<StripConfig>(STRIP_PREF_HASH, true);
-  StripConfig loaded;
-  if (this->pref_.load(&loaded) && loaded.version == 1 && loaded.mode <= 1 &&
-      (loaded.mode == 0 || this->pin_allowed(loaded.pin))) {
-    this->saved_ = loaded;
-  } else {
-    this->saved_ = this->defaults_;
+  // v1 (без ширини) → v2: беремо режим/пін/змійку, ширина й порядок — типові
+  this->saved_ = this->defaults_;
+  auto v1pref = global_preferences->make_preference<StripConfigV1>(STRIP_PREF_HASH, true);
+  StripConfigV1 v1;
+  if (v1pref.load(&v1) && v1.version == 1 && v1.mode <= 1) {
+    this->saved_.mode = v1.mode;
+    this->saved_.pin = v1.pin;
+    this->saved_.serpentine = v1.serpentine;
   }
+  this->pref_ = global_preferences->make_preference<StripConfig>(STRIP_PREF_HASH + 1, true);
+  StripConfig loaded;
+  if (this->pref_.load(&loaded) && loaded.version == 2 && loaded.mode <= 1 && loaded.cols >= COLS_MIN &&
+      loaded.cols <= COLS_MAX && loaded.chain <= 1)
+    this->saved_ = loaded;
+  if (this->saved_.mode == 1 && !this->pin_allowed(this->saved_.pin))
+    this->saved_.mode = 0;
+  this->saved_.version = 2;
   this->active_ = this->saved_;
 
-  const size_t mbytes = (size_t) this->matrix_leds_ * 3;
+  const size_t mbytes = (size_t) this->matrix_leds() * 3;
   if (this->mode() == StripMode::CHAIN) {
     // Одна стрічка: [індикатор][матриця]. Уся RMT-пам'ять S3 (192 символи) — їй.
     if (this->open_(this->chans_[0], this->status_pin_, mbytes + 3, 192)) {
@@ -130,7 +167,8 @@ void StripHub::init() {
     if (this->open_(this->chans_[1], this->status_pin_, 3, 48))
       this->status_ = this->chans_[1].buf;
   }
-  ESP_LOGI(TAG, "Wiring: %s, matrix on GPIO%u, status on GPIO%u, serpentine %s",
+  ESP_LOGI(TAG, "Matrix %dx%d (%s), %s, GPIO%u, status GPIO%u, serpentine %s", this->width(), this->height(),
+           this->chain() == ChainOrder::SNAKE ? "snake" : "rows",
            this->mode() == StripMode::CHAIN ? "chain (after onboard LED)" : "direct", this->pin(), this->status_pin_,
            YESNO(this->serpentine()));
 }
@@ -181,8 +219,9 @@ void StripLight::write_state(light::LightState *state) {
 light::ESPColorView StripLight::get_view_internal(int32_t index) const {
   static uint8_t dummy[4];
   uint8_t *base = StripHub::get()->pixels(this->role_);
-  // Порядок байтів у WS2812 — G, R, B
-  uint8_t *p = base != nullptr ? base + index * 3 : dummy;
+  // Порядок байтів у WS2812 — G, R, B. Дисплей зібрано під максимальну ширину, тому індекси
+  // за межами поточної матриці можливі — пишемо їх у «нікуди».
+  uint8_t *p = (base != nullptr && index >= 0 && index < this->size()) ? base + index * 3 : dummy;
   uint8_t *fx = index < (int32_t) this->effect_data_.size() ? const_cast<uint8_t *>(&this->effect_data_[index]) : dummy + 3;
   return {p + 1, p + 0, p + 2, nullptr, fx, &this->correction_};
 }
@@ -192,9 +231,9 @@ void StripLight::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "Matrix strip (%s):\n"
                 "  Wiring: %s\n"
-                "  Matrix pin: GPIO%u, status pin: GPIO%u, LEDs: %u",
+                "  Matrix pin: GPIO%u, status pin: GPIO%u, size %dx%d (%u LEDs)",
                 this->role_ == 0 ? "matrix" : "status", h->mode() == StripMode::CHAIN ? "chain" : "direct", h->pin(),
-                h->status_pin(), h->matrix_leds());
+                h->status_pin(), h->width(), h->height(), h->matrix_leds());
 }
 
 }  // namespace esphome::matrix_web

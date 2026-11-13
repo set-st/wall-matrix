@@ -23,18 +23,34 @@ namespace esphome::matrix_web {
 
 enum class StripMode : uint8_t { CHAIN = 0, DIRECT = 1 };
 
+// Порядок модулів 8×8 у ланцюжку: ROWS — кожен ряд зліва направо (у кінці ряду провід
+// повертається до початку наступного); SNAKE — другий ряд іде справа наліво, модулі в ньому
+// перевернуті на 180° (короткі дроти між рядами).
+enum class ChainOrder : uint8_t { ROWS = 0, SNAKE = 1 };
+
+static constexpr int PANEL = 8;      // модуль 8×8
+static constexpr int PANEL_ROWS = 2;  // висота — 2 модулі (16 px)
+static constexpr int COLS_MIN = 2, COLS_MAX = 8;  // ширина 16…64 px
+
 struct StripConfig {
   uint8_t mode{0};        // StripMode
   uint8_t pin{5};         // пін матриці в режимі DIRECT
   uint8_t serpentine{0};  // «змійка» всередині панелі 8×8
-  uint8_t version{1};
+  uint8_t version{2};
+  uint8_t cols{4};        // ширина в модулях
+  uint8_t chain{0};       // ChainOrder
+  uint8_t reserved[2]{};
+};
+
+struct StripConfigV1 {
+  uint8_t mode, pin, serpentine, version;
 };
 
 class StripHub {
  public:
   static StripHub *get();
 
-  void set_defaults(StripMode mode, uint8_t pin, uint8_t status_pin, uint16_t matrix_leds, bool serpentine);
+  void set_defaults(StripMode mode, uint8_t pin, uint8_t status_pin, uint8_t cols, ChainOrder chain, bool serpentine);
   void add_reserved_pin(uint8_t pin) { this->reserved_.push_back(pin); }
   void init();  // повторні виклики нічого не роблять
 
@@ -43,7 +59,13 @@ class StripHub {
   uint8_t pin() const { return this->mode() == StripMode::CHAIN ? this->status_pin_ : this->active_.pin; }
   uint8_t status_pin() const { return this->status_pin_; }
   bool serpentine() const { return this->active_.serpentine; }
-  uint16_t matrix_leds() const { return this->matrix_leds_; }
+  int cols() const { return this->active_.cols; }
+  ChainOrder chain() const { return (ChainOrder) this->active_.chain; }
+  int width() const { return this->active_.cols * PANEL; }
+  int height() const { return PANEL_ROWS * PANEL; }
+  uint16_t matrix_leds() const { return this->width() * this->height(); }
+  // Індекс світлодіода в ланцюжку матриці для пікселя (x, y); -1 — поза матрицею
+  int index(int x, int y) const;
   // Збережена — набуде чинності після перезавантаження
   const StripConfig &saved() const { return this->saved_; }
   bool save(const StripConfig &c, std::string &err);
@@ -71,7 +93,6 @@ class StripHub {
   StripConfig active_;
   StripConfig saved_;
   uint8_t status_pin_{48};
-  uint16_t matrix_leds_{512};
   std::vector<uint8_t> reserved_;
   ESPPreferenceObject pref_;
   Chan chans_[2];  // CHAIN: лише [0]; DIRECT: [0] — матриця, [1] — індикатор
