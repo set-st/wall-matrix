@@ -202,6 +202,12 @@ void MatrixWeb::start_app_(int index) {
 
 void MatrixWeb::next_app() {
   std::lock_guard<std::recursive_mutex> guard(this->lock_);
+  this->interrupting_ = false;  // ручне перемикання скасовує повернення
+  this->advance_();
+}
+
+void MatrixWeb::advance_() {
+  std::lock_guard<std::recursive_mutex> guard(this->lock_);
   const int n = this->order_.size();
   for (int i = 1; i <= n; i++) {
     const int idx = (this->current_ + i + n) % n;
@@ -215,6 +221,7 @@ void MatrixWeb::next_app() {
 
 void MatrixWeb::prev_app() {
   std::lock_guard<std::recursive_mutex> guard(this->lock_);
+  this->interrupting_ = false;
   const int n = this->order_.size();
   const int from = this->current_ < 0 ? 0 : this->current_;
   for (int i = 1; i <= n; i++) {
@@ -232,10 +239,38 @@ bool MatrixWeb::switch_to(const std::string &name) {
   auto it = std::find(this->order_.begin(), this->order_.end(), name);
   if (it == this->order_.end() || !this->app_present_(name))
     return false;
+  this->interrupting_ = false;
   this->start_app_((int) (it - this->order_.begin()));
   // Показ на вимогу перериває звичайні сповіщення (крім hold)
   while (!this->notes_.empty() && !this->notes_.front().hold)
     this->notes_.pop_front();
+  return true;
+}
+
+// Переривання: показати name зараз, а потім повернутися до того, що показувалося,
+// і дати йому дограти решту часу (не менше 3 с). Сповіщення мають пріоритет — вони
+// не скасовуються, і переривання покажеться після них.
+bool MatrixWeb::interrupt_with(const std::string &name) {
+  std::lock_guard<std::recursive_mutex> guard(this->lock_);
+  auto it = std::find(this->order_.begin(), this->order_.end(), name);
+  if (it == this->order_.end() || !this->app_present_(name))
+    return false;
+  const bool valid = this->current_ >= 0 && this->current_ < (int) this->order_.size();
+  if (!this->interrupting_) {  // ланцюжок переривань — точка повернення лишається першою
+    this->interrupt_return_ = valid ? this->order_[this->current_] : "";
+    this->interrupt_remaining_ms_ = 0;
+    if (valid) {
+      const uint32_t dur = this->app_duration_ms_(this->interrupt_return_);
+      const uint32_t spent = millis() - this->app_started_ms_;
+      this->interrupt_remaining_ms_ = spent < dur ? dur - spent : 0;
+    }
+  }
+  if (valid && this->order_[this->current_] == name && !this->interrupting_)
+    return true;  // і так показується
+  this->interrupting_ = true;
+  this->interrupt_app_ = name;
+  this->start_app_((int) (it - this->order_.begin()));
+  ESP_LOGD(TAG, "Interrupt: '%s', then back to '%s'", name.c_str(), this->interrupt_return_.c_str());
   return true;
 }
 
@@ -299,8 +334,9 @@ void MatrixWeb::remove_pushed_(const std::string &name) {
     this->save_order_();
   }
   this->disabled_.erase(std::remove(this->disabled_.begin(), this->disabled_.end(), name), this->disabled_.end());
-  if (was_current)
-    this->next_app();
+  // Якщо видаляють застосунок, що зараз перериває, — повернення зробить loop()
+  if (was_current && !(this->interrupting_ && name == this->interrupt_app_))
+    this->advance_();
   ESP_LOGI(TAG, "App '%s' removed", name.c_str());
 }
 
@@ -395,14 +431,36 @@ void MatrixWeb::loop() {
   }
 
   const bool valid = this->current_ >= 0 && this->current_ < (int) this->order_.size();
+
+  // Переривання: коли його час вийшов (або застосунок зник) — назад до перерваного
+  if (this->interrupting_) {
+    const bool still = valid && this->order_[this->current_] == this->interrupt_app_ &&
+                       this->app_runnable_(this->interrupt_app_);
+    if (still && now - this->app_started_ms_ < this->app_duration_ms_(this->interrupt_app_))
+      return;
+    this->interrupting_ = false;
+    auto it = std::find(this->order_.begin(), this->order_.end(), this->interrupt_return_);
+    if (it != this->order_.end() && this->app_runnable_(*it)) {
+      this->start_app_((int) (it - this->order_.begin()));
+      const uint32_t dur = this->app_duration_ms_(*it);
+      const uint32_t keep = std::max(this->interrupt_remaining_ms_, std::min<uint32_t>(3000, dur));
+      if (keep < dur)
+        this->app_started_ms_ = now - (dur - keep);
+      ESP_LOGD(TAG, "Interrupt over, back to '%s' for %u ms", it->c_str(), (unsigned) keep);
+    } else {
+      this->advance_();
+    }
+    return;
+  }
+
   if (!valid || !this->app_runnable_(this->order_[this->current_])) {
     // Поточний став недоступним (або ще нічого не обрано)
     if (now - this->app_started_ms_ >= 1000 || valid)
-      this->next_app();
+      this->advance_();
     return;
   }
   if (now - this->app_started_ms_ >= this->app_duration_ms_(this->order_[this->current_]))
-    this->next_app();
+    this->advance_();
 }
 
 }  // namespace esphome::matrix_web

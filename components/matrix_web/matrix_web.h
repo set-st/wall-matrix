@@ -162,6 +162,8 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   void next_app();
   void prev_app();
   bool switch_to(const std::string &name);
+  // Показати застосунок зараз, а після нього повернутися до перерваного (решта його часу)
+  bool interrupt_with(const std::string &name);
 
   // Стан сутності Home Assistant (attribute "" — сам стан). Можна викликати повторно
   // з іншою сутністю: старий обробник замінюється (див. ha.cpp).
@@ -205,6 +207,7 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   void remove_pushed_(const std::string &name);
   void apply_order_(const std::vector<std::string> &order, const std::vector<std::string> &disabled);
   void start_app_(int index);
+  void advance_();  // наступний у ротації (без скасування переривання)
   void load_order_();
   void save_order_();
 
@@ -266,6 +269,11 @@ class MatrixWeb : public Component, public AsyncWebHandler {
   std::vector<std::shared_ptr<Icon>> icons_;
   int current_{0};
   uint32_t app_started_ms_{0};
+  // Переривання: interrupt_app_ показується, потім — повернення до interrupt_return_
+  bool interrupting_{false};
+  std::string interrupt_app_;
+  std::string interrupt_return_;
+  uint32_t interrupt_remaining_ms_{0};
   float scroll_[3]{20, 20, 32};
 
   struct HaSub {

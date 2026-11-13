@@ -44,6 +44,10 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
   pushed з API), ротація в `loop()`, черга сповіщень. Display lambda лише питає
   `web->current_notification()` / `web->current_app()`; YAML-скрипти викликають `next_app()`,
   `switch_to("Text")`, `notify()`, `dismiss()`. Глобальних screen_idx/notify_* більше немає.
+- **Переривання** (`interrupt_with`, apps.cpp): показати застосунок і повернутися до перерваного
+  з рештою часу (≥3 с). `next_app()/prev_app()/switch_to()` — ручні, скасовують повернення;
+  ротація в loop() — через `advance_()`. Кнопки «Показати» у веб-панелі й HA — з interrupt.
+  Перевірено таймлайном: Time 4 с → itest 3 с → Time 11 с → Date.
 - **API у стилі AWTRIX NG** (api_v1.cpp), вибір користувача. Маршрути з'ясовано з UI його NG
   (http://192.168.2.101, лише GET-запити): apps, apps/order, apps/active, apps/next|previous,
   notifications (+DELETE active|name), display (GET/PATCH), display/screen. Створення pushed

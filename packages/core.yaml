@@ -78,5 +78,5 @@ api:
         - text.set:
             id: text_line2
             value: !lambda 'return line2;'
-        - lambda: 'if (show) id(web_panel)->switch_to("Text");'
+        - lambda: 'if (show) id(web_panel)->interrupt_with("Text");'
 

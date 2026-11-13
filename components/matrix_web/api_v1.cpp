@@ -339,7 +339,9 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
       if (!this->app_present_(name))
         return err(404, "notFound", "no such app");
     }
-    this->defer([this, name]() { this->switch_to(name); });
+    // interrupt: true — показати й потім повернутися до перерваного; інакше — перейти до нього
+    const bool interrupt = doc["interrupt"] | false;
+    this->defer([this, name, interrupt]() { interrupt ? (void) this->interrupt_with(name) : (void) this->switch_to(name); });
     return ok();
   }
   if (path == "apps/order") {
@@ -388,10 +390,13 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
       a.progress = std::max(-1, std::min(100, (int) lroundf(num(o["progress"], -1))));
       a.progress_color = parse_color(o["progressColor"].isNull() ? o["progressC"] : o["progressColor"], 0x00A0FF);
       const bool show = o["show"] | false;
-      this->defer([this, a, show]() mutable {
+      const bool interrupt = o["interrupt"] | false;  // показати зараз і повернутися до ротації
+      this->defer([this, a, show, interrupt]() mutable {
         const std::string n = a.name;
         this->upsert_pushed_(std::move(a));
-        if (show)
+        if (interrupt)
+          this->interrupt_with(n);
+        else if (show)
           this->switch_to(n);
       });
       return ok();

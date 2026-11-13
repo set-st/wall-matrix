@@ -672,7 +672,7 @@ function build() {
   $("autoBr").onchange = e => setVal("switch", "auto_brightness", e.target.checked ? "on" : "off");
   $("next").onclick = () => apiTry("POST", "apps/next", {}).then(loadApps);
   $("prev").onclick = () => apiTry("POST", "apps/previous", {}).then(loadApps);
-  $("showTextQuick").onclick = () => apiTry("PUT", "apps/active", { name: "Text" }).then(loadApps);
+  $("showTextQuick").onclick = () => apiTry("PUT", "apps/active", { name: "Text", interrupt: true }).then(loadApps);
   $("shot").onclick = screenshot;
   const br = $("brightness");
   br.oninput = () => { $("brightnessVal").textContent = br.value + "%"; fillRange(br); };
@@ -717,7 +717,7 @@ function build() {
     };
     $("chips").appendChild(c);
   });
-  $("showText").onclick = () => apiTry("PUT", "apps/active", { name: "Text" });
+  $("showText").onclick = () => apiTry("PUT", "apps/active", { name: "Text", interrupt: true });
   $("textIconSel").onchange = e => setVal("text", "text_icon_name", e.target.value);
   binders.push(s => { const v = s.text.text_icon_name; if (v !== undefined && document.activeElement !== $("textIconSel")) {
     iconSelVal($("textIconSel"), v); drawIconThumb($("textIconPrev"), v); } });
@@ -1023,7 +1023,7 @@ async function loadApps() {
     cb.onchange = () => { a.enabled = cb.checked; saveOrder(); };
     const show = el("button", null, "Показати");
     show.disabled = !a.present;
-    show.onclick = () => apiTry("PUT", "apps/active", { name: a.name }).then(() => setTimeout(loadApps, 300));
+    show.onclick = () => apiTry("PUT", "apps/active", { name: a.name, interrupt: true }).then(() => setTimeout(loadApps, 300));
     const parts = [el("span", "pos", String(i + 1)), up, down, nm,
       el("span", "badge" + (a.origin === "builtin" ? "" : " pushed"), { pushed: "pushed", informer: "інформер" }[a.origin] || "вбудований"), w, show];
     if (a.origin === "pushed") {
@@ -1081,7 +1081,7 @@ function infCard(src) {
   head.append(t, dirtyMark,
     btn("↑", "mini", () => moveAppByName(src.id, -1), "Вище в черзі"),
     btn("↓", "mini", () => moveAppByName(src.id, 1), "Нижче в черзі"),
-    btn("Показати", "", () => apiTry("PUT", "apps/active", { name: src.id })),
+    btn("Показати", "", () => apiTry("PUT", "apps/active", { name: src.id, interrupt: true })),
     btn(infOpen.has(src.id) ? "Згорнути" : "Змінити", "", () => { infOpen.has(src.id) ? infOpen.delete(src.id) : infOpen.add(src.id); renderInformers(); }),
     btn("✕", "mini danger", async () => {
       if (!confirm(`Видалити інформер «${d.title}»?`)) return;
@@ -1142,7 +1142,7 @@ function infCard(src) {
   });
   const revert = btn("Скасувати", "", () => { infDraft.delete(src.id); renderInformers(); });
   const acts = el("div", "inf-actions"); acts.append(save, revert, el("span", "grow"),
-    btn("Показати", "", async () => { if (infDraft.has(src.id)) await save.onclick(); apiTry("PUT", "apps/active", { name: src.id }); }));
+    btn("Показати", "", async () => { if (infDraft.has(src.id)) await save.onclick(); apiTry("PUT", "apps/active", { name: src.id, interrupt: true }); }));
   body.append(acts);
   card.append(body);
   return card;

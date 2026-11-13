@@ -408,7 +408,7 @@ button:
     name: "Show text now"
     icon: mdi:text-box
     on_press:
-      - lambda: 'id(web_panel)->switch_to("Text");'
+      - lambda: 'id(web_panel)->interrupt_with("Text");'
 
   - platform: template
     id: btn_send
