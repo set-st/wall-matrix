@@ -17,7 +17,6 @@ matrix_web:
   light: matrix_light
   width: 32
   height: 16
-  serpentine: ${panel_serpentine}
   switches: [auto_brightness, test_pattern, app_clock, app_date, app_weather, app_text,
              text_icon, text_upper, clock_24h, clock_blink, clock_seconds_bar]
   numbers: [brightness_pct, min_brightness_pct, clock_secs, date_secs, weather_secs,

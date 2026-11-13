@@ -95,6 +95,15 @@ POST без тіла ESPHome відхиляє з кодом 411 — у curl до
 Формат: `'W' 'M' N W H 0`, далі N кадрів: затримка u16 LE (мс) + W×H×3 байти RGB.
 Розмір 8×8 або 16×16, N ≤ 16. Картинки й GIF у цей формат перетворює веб-панель.
 
+## Підключення матриці
+
+| Запит | Що робить |
+|---|---|
+| `GET /api/v1/hardware` | `{active: {mode, pin, serpentine}, saved: {…}, statusPin, leds, pins: [дозволені GPIO]}` |
+| `PUT /api/v1/hardware` `{"mode": "chain"\|"direct", "pin": 5, "serpentine": false, "reboot": true}` | зберегти (діє після перезавантаження; `reboot: true` — одразу перезавантажити) |
+
+`chain` — матриця після вбудованого світлодіода плати (`statusPin`), `direct` — на `pin`.
+
 ## Wi-Fi
 
 | Запит | Що робить |

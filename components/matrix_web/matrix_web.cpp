@@ -1,4 +1,5 @@
 #include "matrix_web.h"
+#include "strip.h"
 
 #include <algorithm>
 #include <cmath>
@@ -290,7 +291,7 @@ bool MatrixWeb::read_pixel_(int x, int y, Color &c) const {
   const int tile = (y / 8) * tiles_x + (x / 8);
   int lx = x % 8;
   const int ly = y % 8;
-  if (this->serpentine_ && (ly % 2 == 1))
+  if (StripHub::get()->serpentine() && (ly % 2 == 1))
     lx = 7 - lx;
   const int32_t idx = this->pixel_offset_ + tile * 64 + ly * 8 + lx;
   if (idx >= strip->size())

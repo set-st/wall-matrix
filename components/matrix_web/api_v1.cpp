@@ -3,6 +3,9 @@
 // ESPHome реєструє в HTTP-сервері лише GET/POST/OPTIONS. PUT, PATCH і DELETE
 // реєструємо самі на тому ж httpd і обробляємо тим самим handle_v1_().
 #include "matrix_web.h"
+#include "strip.h"
+
+#include "esphome/core/application.h"
 
 #include <algorithm>
 #include <cmath>
@@ -530,6 +533,58 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
       return err(405, "methodNotAllowed", "allowed: GET");
     rep.body = this->build_screen_json_();
     return rep;
+  }
+
+  // ----- hardware: підключення матриці (застосовується після перезавантаження) -----
+  if (path == "hardware") {
+    auto *hub = StripHub::get();
+    auto cfg_json = [](const char *key, StripMode mode, uint8_t pin, bool serp) {
+      std::string o = std::string("\"") + key + "\":{\"mode\":\"";
+      o += mode == StripMode::CHAIN ? "chain" : "direct";
+      o += "\",\"pin\":" + std::to_string(pin) + ",\"serpentine\":";
+      o += serp ? "true" : "false";
+      o += '}';
+      return o;
+    };
+    if (is_get) {
+      const auto &sv = hub->saved();
+      rep.body = "{" + cfg_json("active", hub->mode(), hub->mode() == StripMode::CHAIN ? hub->saved().pin : hub->pin(),
+                                hub->serpentine());
+      rep.body += "," + cfg_json("saved", (StripMode) sv.mode, sv.pin, sv.serpentine);
+      rep.body += ",\"statusPin\":" + std::to_string(hub->status_pin());
+      rep.body += ",\"leds\":" + std::to_string(hub->matrix_leds());
+      rep.body += ",\"pins\":[";
+      bool first = true;
+      for (uint8_t p : hub->allowed_pins()) {
+        if (!first)
+          rep.body += ',';
+        first = false;
+        rep.body += std::to_string(p);
+      }
+      rep.body += "]}";
+      return rep;
+    }
+    if (is_put || is_post || is_patch) {
+      JsonDocument doc;
+      if (!parse(doc))
+        return err(400, "badRequest", "JSON body {\"mode\", \"pin\", \"serpentine\", \"reboot\"} expected");
+      StripConfig c = hub->saved();
+      const std::string mode = doc["mode"] | (c.mode ? "direct" : "chain");
+      if (mode != "chain" && mode != "direct")
+        return err(400, "badRequest", "mode: chain або direct");
+      c.mode = mode == "direct" ? 1 : 0;
+      if (!doc["pin"].isNull())
+        c.pin = (uint8_t) num(doc["pin"], c.pin);
+      if (!doc["serpentine"].isNull())
+        c.serpentine = doc["serpentine"].as<bool>();
+      std::string why;
+      if (!hub->save(c, why))
+        return err(400, "badRequest", why);
+      if (doc["reboot"] | false)
+        this->set_timeout(800, []() { App.safe_reboot(); });
+      return ok();
+    }
+    return err(405, "methodNotAllowed", "allowed: GET, PUT");
   }
 
   // ----- wifi (налаштування мережі з веб-панелі) -----

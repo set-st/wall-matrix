@@ -2,33 +2,20 @@
 # Який застосунок чи сповіщення показувати — вирішує компонент matrix_web (id: web_panel).
 
 light:
-  # Фізична стрічка: піксель 0 — вбудований LED плати, 1..512 — матриця.
-  - platform: esp32_rmt_led_strip
-    id: led_strip
-    pin: ${matrix_pin}
-    num_leds: 513
-    rmt_symbols: 192    # канал один — уся RMT-пам'ять S3 йому
-    chipset: WS2812
-    channel_colors: GRB
-    internal: true
-    default_transition_length: 0s
-
-  # Вбудований LED: індикатор Wi-Fi (див. packages/core.yaml)
-  - platform: partition
-    id: status_led
-    name: "Status LED"
-    internal: true
-    restore_mode: ALWAYS_OFF
-    default_transition_length: 0s
-    segments:
-      - id: led_strip
-        from: 0
-        to: 0
-
-  # Матриця 32×16 — на неї малює display
-  - platform: partition
+  # Матриця 32×16 — на неї малює display. Підключення (через вбудований світлодіод або
+  # напряму на пін) і «змійка» задаються у веб-панелі («Екран» → «Підключення матриці»);
+  # тут — лише типові значення для першого запуску.
+  - platform: matrix_web
     id: matrix_light
     name: "Matrix"
+    role: matrix
+    num_leds: 512
+    default_mode: ${matrix_wiring}
+    default_pin: ${matrix_pin}
+    status_pin: ${status_pin}
+    serpentine: ${panel_serpentine}
+    reserved_pins:
+      - ${ldr_pin_num}
     # Дисплей малює, лише коли світло увімкнене
     restore_mode: RESTORE_DEFAULT_ON
     default_transition_length: 0s
@@ -39,10 +26,15 @@ light:
       - ${max_power}
       - ${max_power}
       - ${max_power}
-    segments:
-      - id: led_strip
-        from: 1
-        to: 512
+
+  # Вбудований світлодіод плати: індикатор Wi-Fi (див. packages/core.yaml)
+  - platform: matrix_web
+    id: status_led
+    name: "Status LED"
+    role: status
+    internal: true
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 0s
 
 font:
   # Великий піксельний шрифт 8×8 — для сповіщень
@@ -86,8 +78,8 @@ display:
       const int tile = (y / 8) * 4 + (x / 8);
       int lx = x % 8;
       const int ly = y % 8;
-      if (${panel_serpentine} && (ly % 2 == 1)) lx = 7 - lx;
-      return tile * 64 + ly * 8 + lx;  // індекс усередині partition «Matrix»
+      if (matrix_web::StripHub::get()->serpentine() && (ly % 2 == 1)) lx = 7 - lx;
+      return tile * 64 + ly * 8 + lx;
     lambda: |-
       using matrix_gfx::dim;
       using matrix_gfx::fade;

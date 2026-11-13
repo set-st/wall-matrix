@@ -359,6 +359,21 @@
     <code>{date}</code> <code>{day}</code> <code>{temp}</code>; <code>{u}</code> — одиниця виміру (з галочкою
     «одиниця» вона додається після значення сама). Іконка 16×16 у рядку 1 займає обидва рядки.</div>
 </template>
+<template id="tpl-hw">
+  <div class="row"><div class="lbl"><b>Як підключена матриця</b><span id="hwModeHint"></span></div>
+    <select id="hwMode">
+      <option value="chain">Після вбудованого світлодіода (GPIO48)</option>
+      <option value="direct">Напряму на пін</option>
+    </select></div>
+  <div class="row" id="hwPinRow"><div class="lbl"><b>Пін даних матриці</b>
+    <span>Безпечні піни ESP32-S3; зайняті (фоторезистор, індикатор, PSRAM, USB) не показуються.</span></div>
+    <select id="hwPin"></select></div>
+  <div class="row"><div class="lbl"><b>Змійка всередині панелі</b>
+    <span>Непарні рядки панелі 8×8 ідуть справа наліво. Перевірте тестовим екраном.</span></div>
+    <label class="sw"><input type="checkbox" id="hwSerp"><span></span></label></div>
+  <div class="actions"><button class="primary" id="hwSave">Зберегти й перезавантажити</button>
+    <span class="muted" id="hwStatus"></span></div>
+</template>
 <template id="tpl-apps">
   <div id="appList"></div>
   <div class="actions"><span class="muted">Pushed-застосунки створюються через API:
@@ -468,6 +483,7 @@ const PAGES = {
       { t: "switch", id: "auto_brightness", label: "Автояскравість", hint: "За фоторезистором на GPIO4." },
       { t: "number", id: "min_brightness_pct", label: "Мінімум автояскравості", unit: "%", kind: "slider" },
       { t: "sensor", id: "ldr_voltage", label: "Датчик світла", fmt: v => v.toFixed(2) + " В" } ] },
+    { h: "Підключення матриці", sub: "Застосовується після перезавантаження панелі.", tpl: "tpl-hw" },
     { h: "Діагностика", sub: "Перевірка підключення панелей.", items: [
       { t: "switch", id: "test_pattern", label: "Тестовий екран", hint: "Кожна панель своїм кольором, діагональ і кутові точки." } ] },
   ],
@@ -924,6 +940,47 @@ function setupWifiForm() {
   };
   loadWifi();
   setInterval(() => { if ($("page-system").classList.contains("active")) loadWifi(); }, 8000);
+}
+
+/* ===================== підключення матриці ===================== */
+const HW_HINT = {
+  chain: "DIN першої панелі — до виходу DOUT вбудованого світлодіода плати (через 330 Ом). Світлодіод піднімає рівень сигналу — перетворювач рівнів не потрібен; піксель 0 — індикатор Wi-Fi.",
+  direct: "DIN першої панелі — до вибраного піна (через 330 Ом). ESP32 видає 3.3 В: короткий провід зазвичай працює, але надійніше через перетворювач рівнів 74AHCT125. Вбудований світлодіод лишається індикатором.",
+};
+let hw = null;
+const hwLabel = c => c.mode === "chain" ? "після вбудованого світлодіода" : `напряму, GPIO${c.pin}`;
+
+async function loadHardware() {
+  try { hw = await api("GET", "hardware"); } catch (e) { $("hwStatus").textContent = "Не вдалося прочитати"; return; }
+  $("hwPin").replaceChildren(...hw.pins.map(p => Object.assign(el("option", null, "GPIO" + p), { value: p })));
+  $("hwMode").value = hw.saved.mode;
+  $("hwPin").value = hw.saved.pin;
+  $("hwSerp").checked = hw.saved.serpentine;
+  syncHw();
+}
+function syncHw() {
+  const mode = $("hwMode").value;
+  $("hwPinRow").style.display = mode === "direct" ? "" : "none";
+  $("hwModeHint").textContent = HW_HINT[mode];
+  if (!hw) return;
+  const a = hw.active, sv = hw.saved;
+  const same = a.mode === sv.mode && (a.mode === "chain" || a.pin === sv.pin) && a.serpentine === sv.serpentine;
+  $("hwStatus").textContent = "Зараз: " + hwLabel(a) + (a.serpentine ? ", змійка" : "") +
+    (same ? "" : ` · після перезавантаження: ${hwLabel(sv)}${sv.serpentine ? ", змійка" : ""}`);
+}
+
+function setupHardware() {
+  $("hwMode").onchange = syncHw;
+  $("hwSave").onclick = async () => {
+    const body = { mode: $("hwMode").value, pin: +$("hwPin").value, serpentine: $("hwSerp").checked, reboot: true };
+    const what = body.mode === "chain" ? "після вбудованого світлодіода" : `напряму на GPIO${body.pin}`;
+    if (!confirm(`Зберегти підключення «${what}» і перезавантажити панель?`)) return;
+    if (await apiTry("PUT", "hardware", body)) {
+      $("hwStatus").textContent = "Перезавантаження…";
+      setTimeout(loadHardware, 15000);
+    }
+  };
+  loadHardware();
 }
 
 function setupHaForm() {
@@ -1395,6 +1452,7 @@ build();
 setupHaForm();
 setupWifiForm();
 setupImport();
+setupHardware();
 draw();
 loadState();
 loadIcons();

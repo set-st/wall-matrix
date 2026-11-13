@@ -16,9 +16,9 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
   /api/live: діагональ і кутові точки панелей на місці.
 
 ## Мережа та прошивка
-- Пристрій: `wall-matrix`, IP **192.168.1.192**. Звичайна прошивка — по Wi-Fi:
-  `esphome run wall-matrix.yaml --device 192.168.1.192 --no-logs`
-- Логи мережею: `esphome logs wall-matrix.yaml --device 192.168.1.192`.
+- Пристрій: `wall-matrix`, IP **192.168.1.122**. Звичайна прошивка — по Wi-Fi:
+  `esphome run wall-matrix.yaml --device 192.168.1.122 --no-logs`
+- Логи мережею: `esphome logs wall-matrix.yaml --device 192.168.1.122`.
   Логер іде в USB_SERIAL_JTAG (роз'єм «USB»), а не в COM (CH343) — по COM видно лише завантажувач.
 - Хост — **WSL2**: USB у WSL не прокинуто (`usbipd bind` потребує адміна). Прошивка дротом —
   через Windows Python: `py -m esptool --chip esp32s3 --port COM3 --baud 460800 write_flash 0x0 firmware.factory.bin`.
@@ -73,6 +73,15 @@ AWTRIX-подібна настінна панель на ESPHome. Загальн
 - **Бібліотека іконок** (icons.cpp): до 32 шт, 256 КБ, NVS — блоб на іконку (`fnv1("mwicon:"+name)`)
   + індекс; видалення перезаписує блоб 1 байтом. Формат 'W''M' N W H 0 + кадри.
   Стару єдину іконку переносить як `text` (міграція).
+
+- **IP змінюється (DHCP)**: було .192, з 13.11 — **192.168.1.122**. Якщо «No route to host» —
+  `ping wall-matrix.local` з Windows (`cmd.exe /c ping -4 wall-matrix.local`), у WSL .local не резолвиться.
+- **Власний драйвер стрічки** (strip.h/.cpp, `light: platform: matrix_web`, ролі matrix/status) замість
+  `esp32_rmt_led_strip` + partition: режим `chain` (матриця після вбудованого WS2812 на GPIO48,
+  піксель 0 — індикатор) або `direct` (матриця на окремому GPIO), пін і «змійка» — у NVS, з веб-панелі
+  (`/api/v1/hardware`), діють після перезавантаження. RMT bytes encoder 10 МГц, WS2812 400/1000 нс.
+  `pixel_mapper` і живий перегляд беруть змійку з `StripHub::get()->serpentine()`. Обидва режими
+  перевірені (direct на GPIO5 з поверненням назад), але матриця фізично в режимі chain.
 
 ## Підводні камені ESPHome (2026.10)
 - **Сокети!** Власний компонент замість `web_server` мусить резервувати їх сам
