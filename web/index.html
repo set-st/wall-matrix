@@ -966,7 +966,8 @@ async function loadHardware() {
   try { hw = await api("GET", "hardware"); } catch (e) { $("hwStatus").textContent = "Не вдалося прочитати"; return; }
   $("hwPin").replaceChildren(...hw.pins.map(p => Object.assign(el("option", null, "GPIO" + p), { value: p })));
   const cols = []; for (let c = hw.colsMin; c <= hw.colsMax; c++) cols.push(c);
-  $("hwCols").replaceChildren(...cols.map(c => Object.assign(el("option", null, `${c} × 2 модулі — ${c * 8}×16 px, ${c * 128} LED`), { value: c })));
+  $("hwCols").replaceChildren(...cols.map(c => Object.assign(el("option", null,
+    `${c} × 2 модулі — ${c * 8}×16 px, ${c * 128} LED${c === hw.colsDefault ? " (типово)" : ""}`), { value: c })));
   $("hwCols").value = hw.saved.cols;
   $("hwChain").value = hw.saved.chain;
   $("hwMode").value = hw.saved.mode;

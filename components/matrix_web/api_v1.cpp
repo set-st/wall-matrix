@@ -567,6 +567,7 @@ MatrixWeb::Reply MatrixWeb::handle_v1_(int method, const std::string &url_in, co
       rep.body += ",\"width\":" + std::to_string(hub->width());
       rep.body += ",\"height\":" + std::to_string(hub->height());
       rep.body += ",\"colsMin\":" + std::to_string(COLS_MIN) + ",\"colsMax\":" + std::to_string(COLS_MAX);
+      rep.body += ",\"colsDefault\":" + std::to_string(hub->default_cols());
       rep.body += ",\"pins\":[";
       bool first = true;
       for (uint8_t p : hub->allowed_pins()) {

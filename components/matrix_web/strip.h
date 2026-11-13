@@ -60,6 +60,7 @@ class StripHub {
   uint8_t status_pin() const { return this->status_pin_; }
   bool serpentine() const { return this->active_.serpentine; }
   int cols() const { return this->active_.cols; }
+  int default_cols() const { return this->defaults_.cols; }  // із YAML (matrix_cols)
   ChainOrder chain() const { return (ChainOrder) this->active_.chain; }
   int width() const { return this->active_.cols * PANEL; }
   int height() const { return PANEL_ROWS * PANEL; }
