@@ -62,8 +62,13 @@
     box-shadow: 0 1px 2px #0006; }
   .card.pad { padding: 14px; }
   .sec-h { padding: 12px 16px 10px; border-bottom: 1px solid var(--brd2); position: relative; }
-  .sec-h::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: 0; width: 3px;
-    background: var(--acc); border-top-left-radius: var(--r); }
+  /* Акцентна лінія: іде вниз по лівому краю заголовка, плавно повертає по заокругленню картки
+     й тягнеться верхнім краєм, розчиняючись до кінця блока */
+  .sec-h::before { content: ""; position: absolute; left: -1px; top: -1px; right: -1px; bottom: 0;
+    border-left: 3px solid var(--acc); border-top: 2px solid var(--acc);
+    border-top-left-radius: var(--r); pointer-events: none;
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 12%, transparent 70%);
+    mask-image: linear-gradient(to right, #000 0, #000 12%, transparent 70%); }
   .sec-h b { display: block; font-size: 15px; }
   .sec-h span { color: var(--dim); font-size: 12.5px; }
   .sec-b { padding: 0 16px; }
