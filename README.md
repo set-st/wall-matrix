@@ -42,6 +42,25 @@ Home Assistant, сповіщення, іконки й анімації, REST API
 
 ## Залізо й підключення
 
+### Плата YD-ESP32-23 (ESP32-S3 N16R8)
+
+[![YD-ESP32-S3](https://cdn.espboards.net/boards/yd-esp32-s3/boardart-1200.png)](https://www.espboards.dev/esp32/yd-esp32-s3/)
+
+ESP32-S3, 16 МБ флешу, 8 МБ PSRAM (октальна), два роз'єми USB-C: **COM** (міст CH343, для прошивки)
+і **USB** (вбудований USB ESP32-S3, туди йдуть логи), вбудований RGB-світлодіод WS2812 на GPIO48.
+Специфікація, розпіновка й креслення — на [espboards.dev](https://www.espboards.dev/esp32/yd-esp32-s3/).
+
+<details>
+<summary>Розпіновка</summary>
+
+[![Розпіновка YD-ESP32-S3](https://cdn.espboards.net/boards/yd-esp32-s3/diagram-1600.png)](https://www.espboards.dev/esp32/yd-esp32-s3/)
+
+</details>
+
+<sub>Зображення: [espboards.dev](https://www.espboards.dev/esp32/yd-esp32-s3/).</sub>
+
+### Схема
+
 ```
 БЖ 5V 10A ─┬─────────────► 5V кожної панелі (окремий підвід)
            └─► 5V плати
